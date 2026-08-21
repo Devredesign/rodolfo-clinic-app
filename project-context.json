@@ -1,0 +1,50 @@
+{
+  "project": "Dr. Rodolfo Cabezas Clinic Management WebApp",
+  "status": "functional discovery complete; mockup V3.0 validated",
+  "roles": [
+    "admin",
+    "assistant"
+  ],
+  "currencies": [
+    "USD",
+    "CRC"
+  ],
+  "split": {
+    "rodolfo": 0.7,
+    "clinic": 0.3
+  },
+  "vat": {
+    "rate": 0.04,
+    "included_in_rodolfo_share": true,
+    "formula": "rodolfo_share * 4 / 104"
+  },
+  "payment_methods": {
+    "cash": 0.0,
+    "sinpe": 0.0,
+    "transfer": 0.0,
+    "card": 0.065,
+    "tasa_cero_3m": 0.105
+  },
+  "modules": [
+    "home",
+    "clients",
+    "services",
+    "procedures",
+    "products",
+    "inventory",
+    "payments",
+    "expenses",
+    "payables",
+    "reconciliation",
+    "crm",
+    "users"
+  ],
+  "key_rules": [
+    "master data feeds dependent dropdowns",
+    "historical prices are immutable snapshots",
+    "multiuse inventory tracks open/closed containers, not exact remainder",
+    "payments and procedures are related but independent",
+    "reconciliation closes only when both directions are paid",
+    "USD and CRC records remain separate"
+  ]
+}
