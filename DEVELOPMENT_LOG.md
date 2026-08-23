@@ -145,9 +145,43 @@ RLS de tenant y permisos de `admin` validados correctamente para el estado actua
 
 La validación específica del rol `assistant` se hará cuando exista un segundo usuario de prueba o cuando se implemente el flujo de creación/invitación de perfiles desde la app.
 
+---
+
+## 2026-08-23 — Primer vertical slice del frontend
+
+Se creó la rama `feat/frontend-auth-clients` para iniciar la aplicación real sin mezclar el trabajo en progreso con `main`.
+
+Se agregó `/frontend` con React + Vite + MUI + Supabase JS.
+
+### Alcance implementado
+
+- login por email/contraseña con Supabase Auth,
+- recuperación de sesión existente,
+- consulta de `organization_members` para obtener organización y rol,
+- listado real de clientes protegido por RLS,
+- buscador por nombre, identificación, teléfono y correo,
+- formulario responsive de nuevo cliente,
+- inserción de cliente con `organization_id` y `created_by`,
+- actualización inmediata del listado luego de crear,
+- logout,
+- interfaz responsive pensada para celular y escritorio.
+
+### Configuración frontend
+
+Las variables públicas de conexión no se hardcodean. Se usa `.env.local`, ignorado por Git, con:
+- `VITE_SB_URL`
+- `VITE_SB_PUBLIC`
+
+`.env.example` contiene únicamente placeholders.
+
+### Nota de validación
+
+El código quedó listo para prueba local. El build no pudo ejecutarse desde el entorno de ChatGPT porque dicho entorno no tiene resolución de red hacia npm/GitHub. La siguiente validación debe hacerse en una máquina local o CI con `npm install` y `npm run build`.
+
 ## Próximo paso
 
-1. Crear el frontend real con React + Vite + MUI.
-2. Conectar Supabase Auth desde el frontend.
-3. Implementar Login → Clientes como primer vertical slice.
-4. Implementar después la administración de perfiles adicionales desde una sección de configuración/usuarios.
+1. Ejecutar el frontend localmente con las variables públicas de Supabase.
+2. Probar login real de Rodolfo.
+3. Crear el primer cliente desde la interfaz y confirmar que aparece en la búsqueda.
+4. Corregir cualquier detalle detectado.
+5. Mergear la rama a `main` y desplegar preview en Vercel.
