@@ -18,6 +18,11 @@ import {
   Toolbar,
   Typography
 } from '@mui/material'
+import { DatePicker } from '@mui/x-date-pickers/DatePicker'
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
+import dayjs from 'dayjs'
+import 'dayjs/locale/es'
 import { supabase } from './supabase.js'
 
 const emptyClient = {
@@ -70,22 +75,8 @@ function LoginScreen({ onSession }) {
 
             <Box component="form" onSubmit={submit}>
               <Stack spacing={2}>
-                <TextField
-                  label="Correo"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  fullWidth
-                />
-                <TextField
-                  label="Contraseña"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  fullWidth
-                />
+                <TextField label="Correo" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required fullWidth />
+                <TextField label="Contraseña" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required fullWidth />
                 <Button type="submit" variant="contained" size="large" disabled={loading}>
                   {loading ? 'Ingresando…' : 'Iniciar sesión'}
                 </Button>
@@ -110,9 +101,7 @@ function ClientDialog({ open, onClose, onCreated, organizationId, userId }) {
     }
   }, [open])
 
-  const change = (field) => (event) => {
-    setForm((current) => ({ ...current, [field]: event.target.value }))
-  }
+  const change = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }))
 
   const save = async () => {
     if (!form.full_name.trim()) {
@@ -134,16 +123,10 @@ function ClientDialog({ open, onClose, onCreated, organizationId, userId }) {
       created_by: userId
     }
 
-    const { data, error: insertError } = await supabase
-      .from('clients')
-      .insert(payload)
-      .select('*')
-      .single()
+    const { data, error: insertError } = await supabase.from('clients').insert(payload).select('*').single()
 
     if (insertError) {
-      setError(insertError.code === '23505'
-        ? 'Ya existe un cliente con esa identificación.'
-        : 'No se pudo guardar el cliente. Intentá nuevamente.')
+      setError(insertError.code === '23505' ? 'Ya existe un cliente con esa identificación.' : 'No se pudo guardar el cliente. Intentá nuevamente.')
       setSaving(false)
       return
     }
@@ -165,21 +148,25 @@ function ClientDialog({ open, onClose, onCreated, organizationId, userId }) {
             <TextField label="Teléfono" value={form.phone} onChange={change('phone')} fullWidth />
           </Stack>
           <TextField label="Correo" type="email" value={form.email} onChange={change('email')} />
-          <TextField
-            label="Fecha de nacimiento"
-            type="date"
-            value={form.birth_date}
-            onChange={change('birth_date')}
-            InputLabelProps={{ shrink: true }}
-          />
+          <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="es">
+            <DatePicker
+              label="Fecha de nacimiento"
+              format="DD/MM/YYYY"
+              value={form.birth_date ? dayjs(form.birth_date) : null}
+              onChange={(value) => setForm((current) => ({
+                ...current,
+                birth_date: value?.isValid() ? value.format('YYYY-MM-DD') : ''
+              }))}
+              maxDate={dayjs()}
+              slotProps={{ textField: { fullWidth: true, placeholder: 'DD/MM/YYYY' } }}
+            />
+          </LocalizationProvider>
           <TextField label="Notas" value={form.notes} onChange={change('notes')} multiline minRows={3} />
         </Stack>
       </DialogContent>
       <DialogActions sx={{ p: 2.5 }}>
         <Button onClick={onClose} disabled={saving}>Cancelar</Button>
-        <Button onClick={save} variant="contained" disabled={saving}>
-          {saving ? 'Guardando…' : 'Guardar cliente'}
-        </Button>
+        <Button onClick={save} variant="contained" disabled={saving}>{saving ? 'Guardando…' : 'Guardar cliente'}</Button>
       </DialogActions>
     </Dialog>
   )
@@ -198,62 +185,32 @@ function ClientsScreen({ session, onLogout }) {
     const load = async () => {
       setLoading(true)
       setError('')
-
-      const { data: memberships, error: membershipError } = await supabase
-        .from('organization_members')
-        .select('role, organization_id, organizations(id,name,slug)')
-        .eq('user_id', session.user.id)
-        .eq('active', true)
-        .limit(1)
-
+      const { data: memberships, error: membershipError } = await supabase.from('organization_members').select('role, organization_id, organizations(id,name,slug)').eq('user_id', session.user.id).eq('active', true).limit(1)
       if (membershipError || !memberships?.length) {
         setError('Tu usuario no está asociado a una organización activa.')
         setLoading(false)
         return
       }
-
       const membership = memberships[0]
       setOrganization(membership.organizations)
       setRole(membership.role)
-
-      const { data: clientRows, error: clientsError } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('organization_id', membership.organization_id)
-        .eq('active', true)
-        .order('full_name', { ascending: true })
-
-      if (clientsError) {
-        setError('No pudimos cargar los clientes.')
-      } else {
-        setClients(clientRows ?? [])
-      }
-
+      const { data: clientRows, error: clientsError } = await supabase.from('clients').select('*').eq('organization_id', membership.organization_id).eq('active', true).order('full_name', { ascending: true })
+      if (clientsError) setError('No pudimos cargar los clientes.')
+      else setClients(clientRows ?? [])
       setLoading(false)
     }
-
     load()
   }, [session.user.id])
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase()
     if (!term) return clients
-
-    return clients.filter((client) => [
-      client.full_name,
-      client.identification,
-      client.phone,
-      client.email
-    ].some((value) => value?.toLowerCase().includes(term)))
+    return clients.filter((client) => [client.full_name, client.identification, client.phone, client.email].some((value) => value?.toLowerCase().includes(term)))
   }, [clients, search])
 
-  const addClient = (client) => {
-    setClients((current) => [...current, client].sort((a, b) => a.full_name.localeCompare(b.full_name)))
-  }
+  const addClient = (client) => setClients((current) => [...current, client].sort((a, b) => a.full_name.localeCompare(b.full_name)))
 
-  if (loading) {
-    return <Box minHeight="100vh" display="grid" sx={{ placeItems: 'center' }}><CircularProgress /></Box>
-  }
+  if (loading) return <Box minHeight="100vh" display="grid" sx={{ placeItems: 'center' }}><CircularProgress /></Box>
 
   return (
     <Box minHeight="100vh">
@@ -266,7 +223,6 @@ function ClientsScreen({ session, onLogout }) {
           <Button color="inherit" onClick={onLogout}>Salir</Button>
         </Toolbar>
       </AppBar>
-
       <Container maxWidth="lg" sx={{ py: { xs: 3, sm: 5 } }}>
         <Stack spacing={3}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
@@ -276,92 +232,47 @@ function ClientsScreen({ session, onLogout }) {
             </Box>
             <Button variant="contained" size="large" onClick={() => setDialogOpen(true)}>+ Nuevo cliente</Button>
           </Stack>
-
           {error && <Alert severity="error">{error}</Alert>}
-
-          <TextField
-            placeholder="Buscar por nombre, cédula, teléfono o correo"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            fullWidth
-          />
-
+          <TextField placeholder="Buscar por nombre, cédula, teléfono o correo" value={search} onChange={(e) => setSearch(e.target.value)} fullWidth />
           <Card variant="outlined">
             <CardContent sx={{ p: 0 }}>
               {filtered.length === 0 ? (
                 <Box p={4} textAlign="center">
                   <Typography fontWeight={700}>{clients.length === 0 ? 'Todavía no hay clientes' : 'No encontramos resultados'}</Typography>
-                  <Typography color="text.secondary" mt={1}>
-                    {clients.length === 0 ? 'Creá el primer cliente para validar el flujo completo.' : 'Probá con otra búsqueda.'}
-                  </Typography>
+                  <Typography color="text.secondary" mt={1}>{clients.length === 0 ? 'Creá el primer cliente para validar el flujo completo.' : 'Probá con otra búsqueda.'}</Typography>
                 </Box>
-              ) : (
-                filtered.map((client, index) => (
-                  <Box key={client.id}>
-                    {index > 0 && <Divider />}
-                    <Box p={{ xs: 2, sm: 2.5 }}>
-                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between">
-                        <Box>
-                          <Typography fontWeight={800}>{client.full_name}</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            {[client.identification, client.phone, client.email].filter(Boolean).join(' · ') || 'Sin datos adicionales'}
-                          </Typography>
-                        </Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
-                          {client.tier}
-                        </Typography>
-                      </Stack>
-                      {client.notes && <Typography variant="body2" mt={1.5}>{client.notes}</Typography>}
-                    </Box>
+              ) : filtered.map((client, index) => (
+                <Box key={client.id}>
+                  {index > 0 && <Divider />}
+                  <Box p={{ xs: 2, sm: 2.5 }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between">
+                      <Box>
+                        <Typography fontWeight={800}>{client.full_name}</Typography>
+                        <Typography variant="body2" color="text.secondary">{[client.identification, client.phone, client.email].filter(Boolean).join(' · ') || 'Sin datos adicionales'}</Typography>
+                      </Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>{client.tier}</Typography>
+                    </Stack>
+                    {client.notes && <Typography variant="body2" mt={1.5}>{client.notes}</Typography>}
                   </Box>
-                ))
-              )}
+                </Box>
+              ))}
             </CardContent>
           </Card>
         </Stack>
       </Container>
-
-      {organization && (
-        <ClientDialog
-          open={dialogOpen}
-          onClose={() => setDialogOpen(false)}
-          onCreated={addClient}
-          organizationId={organization.id}
-          userId={session.user.id}
-        />
-      )}
+      {organization && <ClientDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onCreated={addClient} organizationId={organization.id} userId={session.user.id} />}
     </Box>
   )
 }
 
 export default function App() {
   const [session, setSession] = useState(undefined)
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession)
-    })
-
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
     return () => listener.subscription.unsubscribe()
   }, [])
-
-  if (session === undefined) {
-    return <Box minHeight="100vh" display="grid" sx={{ placeItems: 'center' }}><CircularProgress /></Box>
-  }
-
-  if (!session) {
-    return <LoginScreen onSession={setSession} />
-  }
-
-  return (
-    <ClientsScreen
-      session={session}
-      onLogout={async () => {
-        await supabase.auth.signOut()
-        setSession(null)
-      }}
-    />
-  )
+  if (session === undefined) return <Box minHeight="100vh" display="grid" sx={{ placeItems: 'center' }}><CircularProgress /></Box>
+  if (!session) return <LoginScreen onSession={setSession} />
+  return <ClientsScreen session={session} onLogout={async () => { await supabase.auth.signOut(); setSession(null) }} />
 }
