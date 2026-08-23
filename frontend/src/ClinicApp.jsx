@@ -3,6 +3,7 @@ import { Alert, AppBar, Box, Button, CircularProgress, Container, Stack, Tab, Ta
 import { supabase } from './supabase.js'
 import ClientsModule from './ClientsModule.jsx'
 import ProductsScreen from './ProductsScreen.jsx'
+import ServicesScreen from './ServicesScreen.jsx'
 
 function LoginScreen({ onSession }) {
   const [email, setEmail] = useState('drrodolfocabezas@gmail.com')
@@ -92,13 +93,14 @@ export default function ClinicApp() {
       <Tabs value={section} onChange={(_event, value) => setSection(value)} variant="scrollable" scrollButtons="auto" sx={{ px: { xs: 1, sm: 2 } }}>
         <Tab value="clients" label="Clientes" />
         <Tab value="products" label="Productos" />
-        <Tab value="services" label="Servicios" disabled />
+        <Tab value="services" label="Servicios" />
       </Tabs>
     </AppBar>
 
     <Container maxWidth="lg" sx={{ py: { xs: 3, sm: 5 } }}>
       {section === 'clients' && <ClientsModule organization={organization} userId={session.user.id} role={role} />}
       {section === 'products' && <ProductsScreen organization={organization} userId={session.user.id} role={role} />}
+      {section === 'services' && <ServicesScreen organization={organization} userId={session.user.id} role={role} />}
     </Container>
   </Box>
 }
