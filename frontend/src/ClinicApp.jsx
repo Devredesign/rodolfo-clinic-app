@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Alert, AppBar, Box, Button, CircularProgress, Container, Stack, Tab, Tabs, Toolbar, Typography } from '@mui/material'
+import { Alert, AppBar, Box, Button, CircularProgress, Container, Stack, Tab, Tabs, TextField, Toolbar, Typography } from '@mui/material'
 import { supabase } from './supabase.js'
 import ClientsModule from './ClientsModule.jsx'
 import ProductsScreen from './ProductsScreen.jsx'
@@ -30,9 +30,8 @@ function LoginScreen({ onSession }) {
         <Box><Typography variant="overline" color="text.secondary">Gestión clínica</Typography><Typography variant="h4" fontWeight={800}>Dr. Rodolfo Cabezas</Typography><Typography color="text.secondary" mt={1}>Ingresá para administrar clientes y operaciones.</Typography></Box>
         {error && <Alert severity="error">{error}</Alert>}
         <Stack spacing={2}>
-          <input style={{ display: 'none' }} />
-          <Box component="label">Correo<Box component="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required sx={{ display: 'block', width: '100%', mt: 1, p: 1.5, border: '1px solid #ccc', borderRadius: 1 }} /></Box>
-          <Box component="label">Contraseña<Box component="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required sx={{ display: 'block', width: '100%', mt: 1, p: 1.5, border: '1px solid #ccc', borderRadius: 1 }} /></Box>
+          <TextField label="Correo" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required fullWidth />
+          <TextField label="Contraseña" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required fullWidth />
           <Button type="submit" variant="contained" size="large" disabled={loading}>{loading ? 'Ingresando…' : 'Iniciar sesión'}</Button>
         </Stack>
       </Stack>
