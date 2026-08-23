@@ -79,7 +79,7 @@ Se habilitó Row Level Security en las 26 tablas públicas y se implementó aisl
 
 Roles V1:
 - `admin`: Rodolfo.
-- `assistant`: Andrea.
+- `assistant`: rol disponible para un perfil adicional que se creará posteriormente; no se asume todavía el nombre de la persona.
 
 Principios:
 - un usuario autenticado solo accede a datos de organizaciones de las que es miembro activo,
@@ -99,10 +99,16 @@ Se revocó `EXECUTE` a `public`, `anon` y `authenticated`. El trigger interno si
 
 Resultado después de la corrección: **0 Security Advisor lints**.
 
+### Decisión de usuarios iniciales
+
+En el arranque se configurará únicamente el usuario de Rodolfo como `admin`.
+
+No se creará de momento ningún usuario de asistente. La aplicación deberá ofrecer al administrador una opción para crear/invitar posteriormente un nuevo perfil y asignarle el rol `assistant`. De esta manera no se codifican nombres de personas en la arquitectura ni se depende de quién ocupe el puesto de asistencia en el futuro.
+
 ## Próximo paso
 
 1. Crear/sembrar la organización `Dr. Rodolfo Cabezas`.
-2. Crear usuarios Auth Rodolfo y Andrea.
-3. Asociarlos como admin/assistant.
+2. Crear/configurar únicamente el usuario Auth de Rodolfo y asociarlo como `admin`.
+3. Preparar el flujo para que el administrador pueda crear/invitar posteriormente perfiles adicionales con rol `assistant`.
 4. Sembrar módulos, categorías de gasto y métodos de pago.
-5. Probar RLS con ambos roles antes de conectar React.
+5. Probar RLS con Rodolfo y verificar mediante pruebas controladas las restricciones del rol `assistant` antes de conectar React.
