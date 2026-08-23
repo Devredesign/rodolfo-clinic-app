@@ -4,6 +4,7 @@ import { supabase } from './supabase.js'
 import ClientsModule from './ClientsModule.jsx'
 import ProductsScreen from './ProductsScreen.jsx'
 import ServicesScreen from './ServicesScreen.jsx'
+import ProceduresScreen from './ProceduresScreen.jsx'
 
 function LoginScreen({ onSession }) {
   const [email, setEmail] = useState('drrodolfocabezas@gmail.com')
@@ -65,7 +66,7 @@ export default function ClinicApp() {
       setError('')
       const { data, error: membershipError } = await supabase
         .from('organization_members')
-        .select('role, organization_id, organizations(id,name,slug)')
+        .select('role, organization_id, organizations(id,name,slug,default_fx_crc_per_usd)')
         .eq('user_id', session.user.id)
         .eq('active', true)
         .limit(1)
@@ -94,6 +95,7 @@ export default function ClinicApp() {
         <Tab value="clients" label="Clientes" />
         <Tab value="products" label="Productos" />
         <Tab value="services" label="Servicios" />
+        <Tab value="procedures" label="Procedimientos" />
       </Tabs>
     </AppBar>
 
@@ -101,6 +103,7 @@ export default function ClinicApp() {
       {section === 'clients' && <ClientsModule organization={organization} userId={session.user.id} role={role} />}
       {section === 'products' && <ProductsScreen organization={organization} userId={session.user.id} role={role} />}
       {section === 'services' && <ServicesScreen organization={organization} userId={session.user.id} role={role} />}
+      {section === 'procedures' && <ProceduresScreen organization={organization} userId={session.user.id} role={role} />}
     </Container>
   </Box>
 }
