@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
+import { LineChart } from '@mui/x-charts/LineChart'
+import dayjs from 'dayjs'
 import { supabase } from './supabase.js'
 
 const emptyProduct = {
@@ -130,6 +132,7 @@ function ProductFormDialog({ open, onClose, onSaved, organizationId, userId, pro
 function ProductDetailDialog({ product, open, onClose, onEdit, onToggleActive, organizationId }) {
   const [history, setHistory] = useState([])
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [range, setRange] = useState('all')
 
   useEffect(() => {
     if (!open || !product) return
@@ -140,18 +143,33 @@ function ProductDetailDialog({ product, open, onClose, onEdit, onToggleActive, o
         .select('id,cost_usd,effective_at,source')
         .eq('organization_id', organizationId)
         .eq('product_id', product.id)
-        .order('effective_at', { ascending: false })
-        .limit(10)
+        .order('effective_at', { ascending: true })
       setHistory(data ?? [])
       setLoadingHistory(false)
     }
     load()
   }, [open, product, organizationId])
 
+  useEffect(() => {
+    if (open) setRange('all')
+  }, [open, product?.id])
+
+  const filteredHistory = useMemo(() => {
+    if (range === 'all') return history
+    const months = range === '6m' ? 6 : 12
+    const cutoff = dayjs().subtract(months, 'month')
+    return history.filter((row) => dayjs(row.effective_at).isAfter(cutoff) || dayjs(row.effective_at).isSame(cutoff))
+  }, [history, range])
+
+  const chartRows = filteredHistory.map((row) => ({
+    date: new Date(row.effective_at),
+    cost: Number(row.cost_usd)
+  }))
+
   if (!product) return null
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle>Ficha del producto</DialogTitle>
       <DialogContent>
         <Stack spacing={2} mt={1}>
@@ -165,19 +183,62 @@ function ProductDetailDialog({ product, open, onClose, onEdit, onToggleActive, o
           <Box><Typography variant="caption" color="text.secondary">Costo actual</Typography><Typography fontWeight={700}>${Number(product.current_cost_usd).toFixed(2)}</Typography></Box>
           <Box><Typography variant="caption" color="text.secondary">Stock mínimo de alerta</Typography><Typography>{product.low_stock_threshold}</Typography></Box>
           <Divider />
-          <Box>
-            <Typography fontWeight={700} mb={1}>Historial reciente de precios</Typography>
-            {loadingHistory ? <Typography color="text.secondary">Cargando…</Typography> : history.length === 0 ? <Typography color="text.secondary">Todavía no hay cambios registrados.</Typography> : (
+          <Stack spacing={2}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+              <Box flex={1}>
+                <Typography fontWeight={700}>Historial de precios</Typography>
+                <Typography variant="body2" color="text.secondary">Evolución del costo registrado en USD.</Typography>
+              </Box>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel>Rango</InputLabel>
+                <Select value={range} label="Rango" onChange={(e) => setRange(e.target.value)}>
+                  <MenuItem value="6m">6 meses</MenuItem>
+                  <MenuItem value="1y">1 año</MenuItem>
+                  <MenuItem value="all">Todo</MenuItem>
+                </Select>
+              </FormControl>
+            </Stack>
+
+            {loadingHistory ? (
+              <Typography color="text.secondary">Cargando…</Typography>
+            ) : chartRows.length === 0 ? (
+              <Typography color="text.secondary">Todavía no hay cambios registrados en este rango.</Typography>
+            ) : (
+              <Box sx={{ width: '100%', minHeight: 280 }}>
+                <LineChart
+                  height={280}
+                  dataset={chartRows}
+                  xAxis={[{
+                    dataKey: 'date',
+                    scaleType: 'time',
+                    valueFormatter: (value) => dayjs(value).format('DD/MM/YYYY')
+                  }]}
+                  yAxis={[{
+                    valueFormatter: (value) => `$${Number(value).toFixed(2)}`
+                  }]}
+                  series={[{
+                    dataKey: 'cost',
+                    label: 'Costo USD',
+                    valueFormatter: (value) => value == null ? '' : `$${Number(value).toFixed(2)}`,
+                    showMark: true
+                  }]}
+                  grid={{ horizontal: true }}
+                  margin={{ left: 70, right: 20, top: 20, bottom: 30 }}
+                />
+              </Box>
+            )}
+
+            {filteredHistory.length > 0 && (
               <Stack divider={<Divider flexItem />}>
-                {history.map((row) => (
+                {[...filteredHistory].reverse().slice(0, 10).map((row) => (
                   <Stack key={row.id} direction="row" justifyContent="space-between" py={1}>
-                    <Typography variant="body2">{new Date(row.effective_at).toLocaleDateString('es-CR')}</Typography>
+                    <Typography variant="body2">{dayjs(row.effective_at).format('DD/MM/YYYY')}</Typography>
                     <Typography variant="body2" fontWeight={700}>${Number(row.cost_usd).toFixed(2)}</Typography>
                   </Stack>
                 ))}
               </Stack>
             )}
-          </Box>
+          </Stack>
         </Stack>
       </DialogContent>
       <DialogActions sx={{ p: 2.5, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
