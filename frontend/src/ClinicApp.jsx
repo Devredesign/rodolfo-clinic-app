@@ -6,6 +6,7 @@ import ProductsScreen from './ProductsScreen.jsx'
 import ServicesScreen from './ServicesScreen.jsx'
 import ProceduresScreen from './ProceduresScreen.jsx'
 import PaymentsScreen from './PaymentsScreen.jsx'
+import CreditsScreen from './CreditsScreen.jsx'
 import RefundsScreen from './RefundsScreen.jsx'
 
 function LoginScreen({ onSession }) {
@@ -99,7 +100,8 @@ export default function ClinicApp() {
         <Tab value="services" label="Servicios" />
         <Tab value="procedures" label="Procedimientos" />
         <Tab value="payments" label="Pagos" />
-        {role === 'admin' && <Tab value="refunds" label="Reembolsos" />}
+        <Tab value="credits" label="Créditos" />
+        {role === 'admin' && <Tab value="refunds" label="Resolver pagos" />}
       </Tabs>
     </AppBar>
 
@@ -109,6 +111,7 @@ export default function ClinicApp() {
       {section === 'services' && <ServicesScreen organization={organization} userId={session.user.id} role={role} />}
       {section === 'procedures' && <ProceduresScreen organization={organization} userId={session.user.id} role={role} />}
       {section === 'payments' && <PaymentsScreen organization={organization} userId={session.user.id} role={role} />}
+      {section === 'credits' && <CreditsScreen organization={organization} userId={session.user.id} role={role} />}
       {section === 'refunds' && role === 'admin' && <RefundsScreen organization={organization} userId={session.user.id} />}
     </Container>
   </Box>
