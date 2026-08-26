@@ -39,7 +39,7 @@ function PaymentFields({ payment, organization, methods, onChange }) {
   </Stack>
 }
 
-function PaymentDialog({ open, onClose, onSaved, organization, userId, procedures, clients, methods }) {
+function PaymentDialog({ open, onClose, onSaved, organization, userId, procedures, clients, methods, initialProcedureId='' }) {
   const [procedureId, setProcedureId] = useState('')
   const [form, setForm] = useState({ currency: 'USD', list_amount: '', discount_amount: '0', method_id: '', receiver: 'rodolfo', payment_date: today(), external_reference: '', notes: '' })
   const [saving, setSaving] = useState(false)
@@ -49,7 +49,7 @@ function PaymentDialog({ open, onClose, onSaved, organization, userId, procedure
   const fx = Number(organization.default_fx_crc_per_usd || 0)
   const settings = organization.settings || {}
 
-  useEffect(() => { if (open) { setProcedureId(''); setForm({ currency: 'USD', list_amount: '', discount_amount: '0', method_id: '', receiver: 'rodolfo', payment_date: today(), external_reference: '', notes: '' }); setError('') } }, [open])
+  useEffect(() => { if (open) { setProcedureId(initialProcedureId || ''); setForm({ currency: 'USD', list_amount: '', discount_amount: '0', method_id: '', receiver: 'rodolfo', payment_date: today(), external_reference: '', notes: '' }); setError('') } }, [open,initialProcedureId])
   useEffect(() => { if (!procedure) return; const dueUsd = Number(procedure.quoted_amount ?? procedure.service_price_usd_snapshot ?? 0); setForm((f) => ({ ...f, list_amount: f.currency === 'USD' ? dueUsd.toFixed(2) : (dueUsd * fx).toFixed(2) })) }, [procedureId, form.currency, fx])
 
   const save = async () => {
@@ -70,7 +70,7 @@ function PaymentDialog({ open, onClose, onSaved, organization, userId, procedure
       p_processor_fee_rate_snapshot: feeRate, p_processor_fee_amount: feeAmount, p_external_reference: form.external_reference, p_notes: form.notes, p_created_by: userId
     })
     if (rpcError) { console.error(rpcError); setError('No se pudo registrar el pago.'); setSaving(false); return }
-    onSaved(); setSaving(false); onClose()
+    await onSaved(); setSaving(false); onClose()
   }
 
   return <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="md"><DialogTitle>Registrar pago</DialogTitle><DialogContent><Stack spacing={2.5} mt={1}>{error && <Alert severity="error">{error}</Alert>}<FormControl fullWidth><InputLabel>Procedimiento</InputLabel><Select value={procedureId} label="Procedimiento" onChange={(e) => setProcedureId(e.target.value)}>{procedures.filter((p) => p.payment_status !== 'paid' && p.payment_status !== 'voided').map((p) => { const c = clients.find((x) => x.id === p.client_id); return <MenuItem key={p.id} value={p.id}>{c?.full_name || 'Cliente'} · {p.service_name_snapshot} · {p.payment_status === 'partial' ? 'Pago parcial' : 'Pendiente'}</MenuItem> })}</Select></FormControl>{procedure && <Alert severity="info">{client?.full_name} · {procedure.service_name_snapshot} · precio base ${Number(procedure.service_price_usd_snapshot).toFixed(2)}</Alert>}<PaymentFields payment={form} organization={organization} methods={methods} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} /></Stack></DialogContent><DialogActions sx={{ p: 2.5 }}><Button onClick={onClose} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={save} disabled={saving}>{saving ? 'Registrando…' : 'Registrar pago'}</Button></DialogActions></Dialog>
@@ -95,7 +95,7 @@ function EditPaymentDialog({ payment, open, onClose, onSaved, organization, meth
       p_external_reference: form.external_reference || '', p_notes: form.notes || ''
     })
     if (rpcError) { console.error(rpcError); setError(rpcError.message?.includes('Reconciled') ? 'Un pago conciliado ya no puede editarse.' : 'No se pudo editar el pago.'); setSaving(false); return }
-    onSaved(); setSaving(false); onClose()
+    await onSaved(); setSaving(false); onClose()
   }
   return <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="md"><DialogTitle>Editar pago</DialogTitle><DialogContent>{error && <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert>}<PaymentFields payment={form} organization={organization} methods={methods} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} /><Alert severity="warning" sx={{ mt: 2 }}>La edición recalcula automáticamente el estado de pago del procedimiento relacionado.</Alert></DialogContent><DialogActions sx={{ p: 2.5 }}><Button onClick={onClose} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={save} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cambios'}</Button></DialogActions></Dialog>
 }
@@ -109,15 +109,15 @@ function VoidPaymentDialog({ payment, open, onClose, onSaved, organization }) {
     setSaving(true); setError('')
     const { error: rpcError } = await supabase.rpc('void_procedure_payment', { p_organization_id: organization.id, p_payment_id: payment.id, p_void_reason: reason })
     if (rpcError) { console.error(rpcError); setError(rpcError.message?.includes('Reconciled') ? 'Un pago conciliado ya no puede anularse.' : 'No se pudo anular el pago.'); setSaving(false); return }
-    onSaved(); setSaving(false); onClose()
+    await onSaved(); setSaving(false); onClose()
   }
   return <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="sm"><DialogTitle>Anular pago</DialogTitle><DialogContent><Stack spacing={2} mt={1}>{error && <Alert severity="error">{error}</Alert>}<Alert severity="warning">El pago no se borra: quedará en el histórico como anulado y el procedimiento volverá a calcular su saldo.</Alert><TextField label="Motivo de anulación" value={reason} onChange={(e) => setReason(e.target.value)} multiline minRows={3} required /></Stack></DialogContent><DialogActions sx={{ p: 2.5 }}><Button onClick={onClose} disabled={saving}>Cancelar</Button><Button color="error" variant="contained" onClick={confirm} disabled={saving}>{saving ? 'Anulando…' : 'Anular pago'}</Button></DialogActions></Dialog>
 }
 
-export default function PaymentsScreen({ organization, userId }) {
+export default function PaymentsScreen({ organization, userId, navigationTarget, onNavigationConsumed }) {
   const [payments, setPayments] = useState([]), [procedures, setProcedures] = useState([]), [clients, setClients] = useState([]), [methods, setMethods] = useState([])
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [open, setOpen] = useState(false), [statusFilter, setStatusFilter] = useState('all')
-  const [editing, setEditing] = useState(null), [voiding, setVoiding] = useState(null)
+  const [editing, setEditing] = useState(null), [voiding, setVoiding] = useState(null), [initialProcedureId,setInitialProcedureId]=useState('')
 
   const load = async () => {
     setLoading(true); setError('')
@@ -132,15 +132,17 @@ export default function PaymentsScreen({ organization, userId }) {
     setLoading(false)
   }
   useEffect(() => { load() }, [organization.id])
+  useEffect(()=>{if(navigationTarget?.type!=='procedure_payment'||!procedures.length)return;const p=procedures.find(x=>x.id===navigationTarget.id);if(p&&['pending','partial'].includes(p.payment_status)){setInitialProcedureId(p.id);setOpen(true)}else if(p)setError('Este procedimiento ya no tiene un cobro pendiente.');onNavigationConsumed?.()},[navigationTarget,procedures])
 
   const pendingProcedures = useMemo(() => procedures.filter((p) => p.payment_status === 'pending' || p.payment_status === 'partial'), [procedures])
   const visiblePayments = useMemo(() => statusFilter === 'all' ? payments : payments.filter((p) => p.status === statusFilter), [payments, statusFilter])
   const clientById = useMemo(() => Object.fromEntries(clients.map((c) => [c.id, c])), [clients])
   const procedureById = useMemo(() => Object.fromEntries(procedures.map((p) => [p.id, p])), [procedures])
   const pendingUsd = pendingProcedures.reduce((sum, p) => sum + Number(p.quoted_amount ?? p.service_price_usd_snapshot ?? 0), 0)
+  const closePayment=()=>{setOpen(false);setInitialProcedureId('')}
 
   return <Stack spacing={3}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}><Box flex={1}><Typography variant="h4" fontWeight={800}>Pagos</Typography><Typography color="text.secondary">Cobros de pacientes vinculados a procedimientos y su estado de pago.</Typography></Box><Button variant="contained" size="large" onClick={() => setOpen(true)}>+ Registrar pago</Button></Stack>
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}><Box flex={1}><Typography variant="h4" fontWeight={800}>Pagos</Typography><Typography color="text.secondary">Cobros de pacientes vinculados a procedimientos y su estado de pago.</Typography></Box><Button variant="contained" size="large" onClick={() => {setInitialProcedureId('');setOpen(true)}}>+ Registrar pago</Button></Stack>
     {error && <Alert severity="error">{error}</Alert>}
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}><Card variant="outlined" sx={{ flex: 1 }}><CardContent><Typography variant="caption" color="text.secondary">Procedimientos pendientes / parciales</Typography><Typography variant="h5" fontWeight={800}>{pendingProcedures.length}</Typography></CardContent></Card><Card variant="outlined" sx={{ flex: 1 }}><CardContent><Typography variant="caption" color="text.secondary">Valor nominal pendiente</Typography><Typography variant="h5" fontWeight={800}>${pendingUsd.toFixed(2)}</Typography><Typography variant="caption" color="text.secondary">Antes de descuentos y pagos parciales ya realizados.</Typography></CardContent></Card></Stack>
     <FormControl sx={{ maxWidth: 220 }}><InputLabel>Estado del pago</InputLabel><Select value={statusFilter} label="Estado del pago" onChange={(e) => setStatusFilter(e.target.value)}><MenuItem value="all">Todos</MenuItem><MenuItem value="paid">Pagados</MenuItem><MenuItem value="voided">Anulados</MenuItem><MenuItem value="refunded">Reembolsados</MenuItem></Select></FormControl>
@@ -149,7 +151,7 @@ export default function PaymentsScreen({ organization, userId }) {
       const canChange = payment.status === 'paid' && payment.reconciliation_status === 'pending'
       return <Box key={payment.id}>{index > 0 && <Divider />}<Box p={{ xs: 2, sm: 2.5 }}><Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.5}><Box><Typography fontWeight={800}>{client?.full_name || 'Cliente'}</Typography><Typography variant="body2" color="text.secondary">{procedure?.service_name_snapshot || 'Procedimiento'} · {new Date(`${payment.payment_date}T12:00:00`).toLocaleDateString('es-CR')} · {payment.payment_methods?.label || 'Método'}</Typography><Typography variant="caption" color="text.secondary">Recibido por {payment.receiver === 'rodolfo' ? 'Rodolfo' : 'clínica'}{payment.external_reference ? ` · Ref. ${payment.external_reference}` : ''}</Typography>{payment.status === 'voided' && payment.void_reason && <Typography variant="body2" color="error" mt={0.5}>Anulado: {payment.void_reason}</Typography>}</Box><Stack spacing={1} alignItems={{ md: 'flex-end' }}><Stack direction="row" spacing={1}><Chip label={money(payment.final_amount, payment.currency)} /><Chip variant="outlined" label={payment.status === 'paid' ? 'Pagado' : payment.status === 'voided' ? 'Anulado' : payment.status} /></Stack>{canChange && <Stack direction="row" spacing={0.5}><Tooltip title="Editar pago"><IconButton size="small" aria-label="Editar pago" onClick={() => setEditing(payment)}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip><Tooltip title="Anular pago"><IconButton size="small" color="error" aria-label="Anular pago" onClick={() => setVoiding(payment)}><DeleteOutlineIcon fontSize="small" /></IconButton></Tooltip></Stack>}{payment.reconciliation_status !== 'pending' && <Typography variant="caption" color="text.secondary">Conciliado · bloqueado para cambios</Typography>}</Stack></Stack></Box></Box>
     })}</CardContent></Card>
-    <PaymentDialog open={open} onClose={() => setOpen(false)} onSaved={load} organization={organization} userId={userId} procedures={procedures} clients={clients} methods={methods} />
+    <PaymentDialog open={open} onClose={closePayment} onSaved={load} organization={organization} userId={userId} procedures={procedures} clients={clients} methods={methods} initialProcedureId={initialProcedureId}/>
     <EditPaymentDialog payment={editing} open={Boolean(editing)} onClose={() => setEditing(null)} onSaved={load} organization={organization} methods={methods} />
     <VoidPaymentDialog payment={voiding} open={Boolean(voiding)} onClose={() => setVoiding(null)} onSaved={load} organization={organization} />
   </Stack>
