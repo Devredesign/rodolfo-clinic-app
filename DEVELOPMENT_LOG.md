@@ -185,3 +185,42 @@ El código quedó listo para prueba local. El build no pudo ejecutarse desde el 
 3. Crear el primer cliente desde la interfaz y confirmar que aparece en la búsqueda.
 4. Corregir cualquier detalle detectado.
 5. Mergear la rama a `main` y desplegar preview en Vercel.
+
+---
+
+## 2026-08-26 — CRM v2: categorías, filtros y acciones contextuales
+
+Se formalizó el CRM como bandeja operativa central de la app, no como una lista libre de recordatorios.
+
+### Categorías de tareas
+
+Se creó `task_categories` por organización y se agregó `tasks.category_id`, manteniendo temporalmente `tasks.category` por compatibilidad con funciones existentes. Un trigger sincroniza ambos campos para que las automatizaciones antiguas continúen funcionando mientras el frontend usa IDs estables.
+
+Categorías base:
+- Seguimiento (`follow_up`),
+- Remarketing (`remarketing`),
+- Cobros (`collections`),
+- Compras (`purchases`),
+- Inventario (`inventory`),
+- Finanzas (`finance`),
+- Conciliación (`reconciliation`),
+- Administrativa (`administrative`),
+- General (`general`).
+
+Las categorías se crean automáticamente para organizaciones nuevas y se sembraron para las existentes.
+
+### UX CRM
+
+- El formulario manual usa un selector de categoría; ya no acepta texto libre.
+- Se agregaron filtros por categoría y por fecha: vencidas, hoy, próximos 7 días y sin fecha.
+- Las tareas vencidas/hoy se distinguen visualmente.
+- Tareas asociadas a clientes pueden abrir WhatsApp usando el teléfono del cliente.
+- Las tareas de seguimiento pueden abrir tanto la ficha del cliente como el procedimiento origen.
+- Las tareas de compras pendientes mantienen `Registrar pago` y `Ver compra`.
+- Las tareas de stock bajo ofrecen acceso contextual a Inventario/compra y al producto origen.
+
+### Decisiones
+
+- `category_id` define clasificación; `reference_type/reference_id` define origen. No se mezclan ambos conceptos.
+- Las acciones se derivan del origen de la tarea, no del texto del título.
+- Los responsables múltiples continúan modelados mediante `task_assignees`; la gestión de usuarios se implementará en un bloque posterior.
