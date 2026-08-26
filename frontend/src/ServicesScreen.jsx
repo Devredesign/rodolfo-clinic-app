@@ -1,283 +1,70 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Alert, Box, Button, Card, CardContent, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, FormControlLabel, IconButton, InputLabel, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import AddIcon from '@mui/icons-material/Add'
 import { supabase } from './supabase.js'
 
-const emptyService = { name: '', price_usd: '', remarketing_months: '' }
+const emptyService = { name: '', price_usd: '', followup_enabled: false, followup_value: '', followup_unit: 'months' }
+const followupLabel = (service) => !service.followup_enabled || !service.followup_value ? 'Sin seguimiento automático' : `Seguimiento: ${service.followup_value} ${service.followup_unit === 'days' ? 'día(s)' : 'mes(es)'}`
 
 function ProductRecipeEditor({ rows, products, onChange }) {
   const addRow = () => onChange([...rows, { product_id: '', standard_quantity: '1' }])
   const updateRow = (index, field, value) => onChange(rows.map((row, i) => i === index ? { ...row, [field]: value } : row))
   const removeRow = (index) => onChange(rows.filter((_row, i) => i !== index))
-
   return <Stack spacing={1.5}>
-    <Stack direction="row" justifyContent="space-between" alignItems="center">
-      <Box>
-        <Typography fontWeight={700}>Productos utilizados</Typography>
-        <Typography variant="body2" color="text.secondary">Definí la cantidad estándar de cada producto para este servicio.</Typography>
-      </Box>
-      <Button size="small" startIcon={<AddIcon />} onClick={addRow}>Agregar</Button>
-    </Stack>
+    <Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography fontWeight={700}>Productos utilizados</Typography><Typography variant="body2" color="text.secondary">Definí la cantidad estándar de cada producto para este servicio.</Typography></Box><Button size="small" startIcon={<AddIcon />} onClick={addRow}>Agregar</Button></Stack>
     {rows.length === 0 && <Alert severity="info">Este servicio todavía no tiene productos asociados.</Alert>}
-    {rows.map((row, index) => (
-      <Stack key={index} direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
-        <FormControl fullWidth>
-          <InputLabel>Producto</InputLabel>
-          <Select value={row.product_id} label="Producto" onChange={(e) => updateRow(index, 'product_id', e.target.value)}>
-            {products.filter((p) => p.active).map((product) => <MenuItem key={product.id} value={product.id}>{product.name}{product.brand ? ` · ${product.brand}` : ''}</MenuItem>)}
-          </Select>
-        </FormControl>
-        <TextField label="Cantidad estándar" type="number" value={row.standard_quantity} onChange={(e) => updateRow(index, 'standard_quantity', e.target.value)} inputProps={{ min: 0.0001, step: '0.01' }} sx={{ minWidth: { sm: 170 } }} />
-        <IconButton color="error" onClick={() => removeRow(index)}><DeleteOutlineIcon /></IconButton>
-      </Stack>
-    ))}
+    {rows.map((row, index) => <Stack key={index} direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}><FormControl fullWidth><InputLabel>Producto</InputLabel><Select value={row.product_id} label="Producto" onChange={(e) => updateRow(index, 'product_id', e.target.value)}>{products.filter((p) => p.active).map((product) => <MenuItem key={product.id} value={product.id}>{product.name}{product.brand ? ` · ${product.brand}` : ''}</MenuItem>)}</Select></FormControl><TextField label="Cantidad estándar" type="number" value={row.standard_quantity} onChange={(e) => updateRow(index, 'standard_quantity', e.target.value)} inputProps={{ min: 0.0001, step: '0.01' }} sx={{ minWidth: { sm: 170 } }} /><IconButton color="error" onClick={() => removeRow(index)}><DeleteOutlineIcon /></IconButton></Stack>)}
   </Stack>
 }
 
 function ServiceFormDialog({ open, onClose, onSaved, organizationId, userId, service, products }) {
-  const [form, setForm] = useState(emptyService)
-  const [recipe, setRecipe] = useState([])
-  const [saving, setSaving] = useState(false)
-  const [loadingRecipe, setLoadingRecipe] = useState(false)
-  const [error, setError] = useState('')
+  const [form, setForm] = useState(emptyService), [recipe, setRecipe] = useState([]), [saving, setSaving] = useState(false), [loadingRecipe, setLoadingRecipe] = useState(false), [error, setError] = useState('')
   const editing = Boolean(service)
-
   useEffect(() => {
     if (!open) return
-    setForm(service ? {
-      name: service.name || '',
-      price_usd: String(service.price_usd ?? ''),
-      remarketing_months: service.remarketing_months == null ? '' : String(service.remarketing_months)
-    } : emptyService)
+    const legacyMonths = service?.remarketing_months
+    setForm(service ? { name: service.name || '', price_usd: String(service.price_usd ?? ''), followup_enabled: Boolean(service.followup_enabled ?? (legacyMonths != null && legacyMonths > 0)), followup_value: service.followup_value != null ? String(service.followup_value) : (legacyMonths != null ? String(legacyMonths) : ''), followup_unit: service.followup_unit || 'months' } : emptyService)
     setError('')
-
-    if (!service) {
-      setRecipe([])
-      return
-    }
-
-    const loadRecipe = async () => {
-      setLoadingRecipe(true)
-      const { data, error: recipeError } = await supabase
-        .from('service_products')
-        .select('product_id,standard_quantity,sort_order')
-        .eq('organization_id', organizationId)
-        .eq('service_id', service.id)
-        .order('sort_order')
-      if (recipeError) setError('No se pudieron cargar los productos asociados al servicio.')
-      setRecipe((data ?? []).map((row) => ({ product_id: row.product_id, standard_quantity: String(row.standard_quantity) })))
-      setLoadingRecipe(false)
-    }
+    if (!service) { setRecipe([]); return }
+    const loadRecipe = async () => { setLoadingRecipe(true); const { data, error: recipeError } = await supabase.from('service_products').select('product_id,standard_quantity,sort_order').eq('organization_id', organizationId).eq('service_id', service.id).order('sort_order'); if (recipeError) setError('No se pudieron cargar los productos asociados al servicio.'); setRecipe((data ?? []).map((row) => ({ product_id: row.product_id, standard_quantity: String(row.standard_quantity) }))); setLoadingRecipe(false) }
     loadRecipe()
   }, [open, service, organizationId])
-
   const change = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }))
-
   const save = async () => {
-    const price = Number(form.price_usd)
-    const months = form.remarketing_months === '' ? null : Number(form.remarketing_months)
+    const price = Number(form.price_usd), followupValue = form.followup_enabled ? Number(form.followup_value) : null
     if (!form.name.trim()) return setError('El nombre del servicio es obligatorio.')
     if (!Number.isFinite(price) || price < 0) return setError('Ingresá un precio válido en dólares.')
-    if (months !== null && (!Number.isInteger(months) || months < 0)) return setError('El remarketing debe expresarse en meses enteros iguales o mayores a 0.')
-
-    const normalizedRecipe = recipe.filter((row) => row.product_id)
-    const duplicateIds = normalizedRecipe.map((row) => row.product_id).filter((id, index, all) => all.indexOf(id) !== index)
+    if (form.followup_enabled && (!Number.isInteger(followupValue) || followupValue <= 0)) return setError('Definí en cuántos días o meses debe hacerse el seguimiento.')
+    const normalizedRecipe = recipe.filter((row) => row.product_id), duplicateIds = normalizedRecipe.map((row) => row.product_id).filter((id, index, all) => all.indexOf(id) !== index)
     if (duplicateIds.length) return setError('Un producto no puede repetirse dentro del mismo servicio.')
-    for (const row of normalizedRecipe) {
-      const qty = Number(row.standard_quantity)
-      if (!Number.isFinite(qty) || qty <= 0) return setError('Todas las cantidades de producto deben ser mayores a 0.')
-    }
-
-    setSaving(true)
-    setError('')
-
-    const payload = { name: form.name.trim(), price_usd: price, remarketing_months: months }
-    let result
-    if (editing) {
-      result = await supabase.from('services').update(payload).eq('id', service.id).eq('organization_id', organizationId).select('*').single()
-    } else {
-      result = await supabase.from('services').insert({ ...payload, organization_id: organizationId, created_by: userId }).select('*').single()
-    }
-
-    if (result.error) {
-      setSaving(false)
-      setError(result.error.code === '23505' ? 'Ya existe un servicio con ese nombre.' : 'No se pudo guardar el servicio.')
-      return
-    }
-
+    for (const row of normalizedRecipe) { const qty = Number(row.standard_quantity); if (!Number.isFinite(qty) || qty <= 0) return setError('Todas las cantidades de producto deben ser mayores a 0.') }
+    setSaving(true); setError('')
+    const payload = { name: form.name.trim(), price_usd: price, followup_enabled: form.followup_enabled, followup_value: followupValue, followup_unit: form.followup_enabled ? form.followup_unit : null, remarketing_months: form.followup_enabled && form.followup_unit === 'months' ? followupValue : null }
+    const result = editing ? await supabase.from('services').update(payload).eq('id', service.id).eq('organization_id', organizationId).select('*').single() : await supabase.from('services').insert({ ...payload, organization_id: organizationId, created_by: userId }).select('*').single()
+    if (result.error) { setSaving(false); setError(result.error.code === '23505' ? 'Ya existe un servicio con ese nombre.' : 'No se pudo guardar el servicio.'); return }
     const saved = result.data
-
     const { error: deleteError } = await supabase.from('service_products').delete().eq('organization_id', organizationId).eq('service_id', saved.id)
-    if (deleteError) {
-      setSaving(false)
-      setError('El servicio se guardó, pero no se pudo actualizar su lista de productos.')
-      return
-    }
-
-    if (normalizedRecipe.length) {
-      const rows = normalizedRecipe.map((row, index) => ({
-        organization_id: organizationId,
-        service_id: saved.id,
-        product_id: row.product_id,
-        standard_quantity: Number(row.standard_quantity),
-        sort_order: index
-      }))
-      const { error: insertError } = await supabase.from('service_products').insert(rows)
-      if (insertError) {
-        setSaving(false)
-        setError('El servicio se guardó, pero no se pudieron registrar todos los productos asociados.')
-        return
-      }
-    }
-
-    onSaved(saved)
-    setSaving(false)
-    onClose()
+    if (deleteError) { setSaving(false); setError('El servicio se guardó, pero no se pudo actualizar su lista de productos.'); return }
+    if (normalizedRecipe.length) { const rows = normalizedRecipe.map((row, index) => ({ organization_id: organizationId, service_id: saved.id, product_id: row.product_id, standard_quantity: Number(row.standard_quantity), sort_order: index })); const { error: insertError } = await supabase.from('service_products').insert(rows); if (insertError) { setSaving(false); setError('El servicio se guardó, pero no se pudieron registrar todos los productos asociados.'); return } }
+    onSaved(saved); setSaving(false); onClose()
   }
-
-  return <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="md">
-    <DialogTitle>{editing ? 'Editar servicio' : 'Nuevo servicio'}</DialogTitle>
-    <DialogContent>
-      <Stack spacing={2.5} mt={1}>
-        {error && <Alert severity="error">{error}</Alert>}
-        <TextField label="Nombre del servicio" value={form.name} onChange={change('name')} required autoFocus />
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-          <TextField label="Precio fijo (USD)" type="number" value={form.price_usd} onChange={change('price_usd')} inputProps={{ min: 0, step: '0.01' }} required fullWidth />
-          <TextField label="Remarketing después de (meses)" type="number" value={form.remarketing_months} onChange={change('remarketing_months')} inputProps={{ min: 0, step: 1 }} helperText="Ej: Botox → 4 meses" fullWidth />
-        </Stack>
-        <Divider />
-        {loadingRecipe ? <Typography color="text.secondary">Cargando productos…</Typography> : <ProductRecipeEditor rows={recipe} products={products} onChange={setRecipe} />}
-      </Stack>
-    </DialogContent>
-    <DialogActions sx={{ p: 2.5 }}>
-      <Button onClick={onClose} disabled={saving}>Cancelar</Button>
-      <Button variant="contained" onClick={save} disabled={saving || loadingRecipe}>{saving ? 'Guardando…' : 'Guardar servicio'}</Button>
-    </DialogActions>
-  </Dialog>
+  return <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="md"><DialogTitle>{editing ? 'Editar servicio' : 'Nuevo servicio'}</DialogTitle><DialogContent><Stack spacing={2.5} mt={1}>{error && <Alert severity="error">{error}</Alert>}<TextField label="Nombre del servicio" value={form.name} onChange={change('name')} required autoFocus /><TextField label="Precio fijo (USD)" type="number" value={form.price_usd} onChange={change('price_usd')} inputProps={{ min: 0, step: '0.01' }} required /><Divider/><Box><FormControlLabel control={<Checkbox checked={form.followup_enabled} onChange={(e) => setForm((f) => ({ ...f, followup_enabled: e.target.checked }))}/>} label="Generar seguimiento automático en CRM" />{form.followup_enabled && <Stack direction={{xs:'column',sm:'row'}} spacing={2} mt={1}><TextField fullWidth label="Seguimiento después de" type="number" value={form.followup_value} onChange={change('followup_value')} inputProps={{min:1,step:1}}/><FormControl fullWidth><InputLabel>Unidad</InputLabel><Select value={form.followup_unit} label="Unidad" onChange={change('followup_unit')}><MenuItem value="days">Días</MenuItem><MenuItem value="months">Meses</MenuItem></Select></FormControl></Stack>}<Typography variant="body2" color="text.secondary" mt={1}>Al registrar un procedimiento realizado, la app creará automáticamente una tarea CRM para ese paciente en la fecha correspondiente.</Typography></Box><Divider />{loadingRecipe ? <Typography color="text.secondary">Cargando productos…</Typography> : <ProductRecipeEditor rows={recipe} products={products} onChange={setRecipe} />}</Stack></DialogContent><DialogActions sx={{ p: 2.5 }}><Button onClick={onClose} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={save} disabled={saving || loadingRecipe}>{saving ? 'Guardando…' : 'Guardar servicio'}</Button></DialogActions></Dialog>
 }
 
 function ServiceDetailDialog({ service, open, onClose, onEdit, onToggleActive, organizationId, products }) {
-  const [recipe, setRecipe] = useState([])
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (!open || !service) return
-    const load = async () => {
-      setLoading(true)
-      const { data } = await supabase
-        .from('service_products')
-        .select('product_id,standard_quantity,sort_order')
-        .eq('organization_id', organizationId)
-        .eq('service_id', service.id)
-        .order('sort_order')
-      setRecipe(data ?? [])
-      setLoading(false)
-    }
-    load()
-  }, [open, service, organizationId])
-
+  const [recipe, setRecipe] = useState([]), [loading, setLoading] = useState(false)
+  useEffect(() => { if (!open || !service) return; const load = async () => { setLoading(true); const { data } = await supabase.from('service_products').select('product_id,standard_quantity,sort_order').eq('organization_id', organizationId).eq('service_id', service.id).order('sort_order'); setRecipe(data ?? []); setLoading(false) }; load() }, [open, service, organizationId])
   if (!service) return null
-  const byId = Object.fromEntries(products.map((p) => [p.id, p]))
-  const estimatedCost = recipe.reduce((sum, row) => sum + Number(row.standard_quantity) * Number(byId[row.product_id]?.current_cost_usd || 0), 0)
-
-  return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-    <DialogTitle>Ficha del servicio</DialogTitle>
-    <DialogContent>
-      <Stack spacing={2} mt={1}>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-          <Typography variant="h5" fontWeight={800}>{service.name}</Typography>
-          <Chip size="small" variant="outlined" label={service.active ? 'Activo' : 'Archivado'} />
-        </Stack>
-        <Divider />
-        <Box><Typography variant="caption" color="text.secondary">Precio fijo</Typography><Typography fontWeight={700}>${Number(service.price_usd).toFixed(2)}</Typography></Box>
-        <Box><Typography variant="caption" color="text.secondary">Remarketing</Typography><Typography>{service.remarketing_months == null ? 'Sin regla definida' : `${service.remarketing_months} meses después`}</Typography></Box>
-        <Box><Typography variant="caption" color="text.secondary">Costo estándar estimado de productos</Typography><Typography fontWeight={700}>${estimatedCost.toFixed(2)}</Typography></Box>
-        <Divider />
-        <Box>
-          <Typography fontWeight={700} mb={1}>Productos estándar</Typography>
-          {loading ? <Typography color="text.secondary">Cargando…</Typography> : recipe.length === 0 ? <Typography color="text.secondary">No hay productos asociados.</Typography> : <Stack divider={<Divider flexItem />}>
-            {recipe.map((row) => <Stack key={row.product_id} direction="row" justifyContent="space-between" py={1}><Typography variant="body2">{byId[row.product_id]?.name || 'Producto'}</Typography><Typography variant="body2" fontWeight={700}>{Number(row.standard_quantity)} unidad(es)</Typography></Stack>)}
-          </Stack>}
-        </Box>
-      </Stack>
-    </DialogContent>
-    <DialogActions sx={{ p: 2.5, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-      <Button color={service.active ? 'error' : 'success'} onClick={() => onToggleActive(service)}>{service.active ? 'Archivar servicio' : 'Reactivar servicio'}</Button>
-      <Stack direction="row" spacing={1}><Button onClick={onClose}>Cerrar</Button><Button variant="contained" onClick={() => onEdit(service)}>Editar</Button></Stack>
-    </DialogActions>
-  </Dialog>
+  const byId = Object.fromEntries(products.map((p) => [p.id, p])), estimatedCost = recipe.reduce((sum, row) => sum + Number(row.standard_quantity) * Number(byId[row.product_id]?.current_cost_usd || 0), 0)
+  return <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm"><DialogTitle>Ficha del servicio</DialogTitle><DialogContent><Stack spacing={2} mt={1}><Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap"><Typography variant="h5" fontWeight={800}>{service.name}</Typography><Chip size="small" variant="outlined" label={service.active ? 'Activo' : 'Archivado'} /></Stack><Divider /><Box><Typography variant="caption" color="text.secondary">Precio fijo</Typography><Typography fontWeight={700}>${Number(service.price_usd).toFixed(2)}</Typography></Box><Box><Typography variant="caption" color="text.secondary">Seguimiento CRM</Typography><Typography>{followupLabel(service)}</Typography></Box><Box><Typography variant="caption" color="text.secondary">Costo estándar estimado de productos</Typography><Typography fontWeight={700}>${estimatedCost.toFixed(2)}</Typography></Box><Divider /><Box><Typography fontWeight={700} mb={1}>Productos estándar</Typography>{loading ? <Typography color="text.secondary">Cargando…</Typography> : recipe.length === 0 ? <Typography color="text.secondary">No hay productos asociados.</Typography> : <Stack divider={<Divider flexItem />}>{recipe.map((row) => <Stack key={row.product_id} direction="row" justifyContent="space-between" py={1}><Typography variant="body2">{byId[row.product_id]?.name || 'Producto'}</Typography><Typography variant="body2" fontWeight={700}>{Number(row.standard_quantity)} unidad(es)</Typography></Stack>)}</Stack>}</Box></Stack></DialogContent><DialogActions sx={{ p: 2.5, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}><Button color={service.active ? 'error' : 'success'} onClick={() => onToggleActive(service)}>{service.active ? 'Archivar servicio' : 'Reactivar servicio'}</Button><Stack direction="row" spacing={1}><Button onClick={onClose}>Cerrar</Button><Button variant="contained" onClick={() => onEdit(service)}>Editar</Button></Stack></DialogActions></Dialog>
 }
 
 export default function ServicesScreen({ organization, userId, role }) {
-  const [services, setServices] = useState([])
-  const [products, setProducts] = useState([])
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('active')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingService, setEditingService] = useState(null)
-  const [selectedService, setSelectedService] = useState(null)
-
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true)
-      const [{ data: serviceRows, error: serviceError }, { data: productRows, error: productError }] = await Promise.all([
-        supabase.from('services').select('*').eq('organization_id', organization.id).order('name'),
-        supabase.from('products').select('*').eq('organization_id', organization.id).order('name')
-      ])
-      if (serviceError || productError) setError('No se pudo cargar el catálogo de servicios.')
-      else {
-        setServices(serviceRows ?? [])
-        setProducts(productRows ?? [])
-      }
-      setLoading(false)
-    }
-    load()
-  }, [organization.id])
-
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    return services.filter((service) =>
-      (statusFilter === 'all' || (statusFilter === 'active' ? service.active : !service.active)) &&
-      (!term || service.name.toLowerCase().includes(term))
-    )
-  }, [services, search, statusFilter])
-
-  const upsertService = (saved) => setServices((current) => {
-    const exists = current.some((s) => s.id === saved.id)
-    const next = exists ? current.map((s) => s.id === saved.id ? saved : s) : [...current, saved]
-    return next.sort((a, b) => a.name.localeCompare(b.name))
-  })
-
-  const toggleActive = async (service) => {
-    if (role !== 'admin') return
-    const { data, error: updateError } = await supabase.from('services').update({ active: !service.active }).eq('id', service.id).eq('organization_id', organization.id).select('*').single()
-    if (updateError) setError('No se pudo actualizar el servicio.')
-    else {
-      upsertService(data)
-      setSelectedService(null)
-    }
-  }
-
-  return <Stack spacing={3}>
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-      <Box flex={1}><Typography variant="h4" fontWeight={800}>Servicios</Typography><Typography color="text.secondary">Definiciones maestras para procedimientos, precios y consumo estándar de productos.</Typography></Box>
-      {role === 'admin' && <Button variant="contained" size="large" onClick={() => { setEditingService(null); setFormOpen(true) }}>+ Nuevo servicio</Button>}
-    </Stack>
-
-    {error && <Alert severity="error">{error}</Alert>}
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-      <TextField placeholder="Buscar servicio" value={search} onChange={(e) => setSearch(e.target.value)} fullWidth />
-      <FormControl sx={{ minWidth: { sm: 180 } }}><InputLabel>Estado</InputLabel><Select value={statusFilter} label="Estado" onChange={(e) => setStatusFilter(e.target.value)}><MenuItem value="active">Activos</MenuItem><MenuItem value="archived">Archivados</MenuItem><MenuItem value="all">Todos</MenuItem></Select></FormControl>
-    </Stack>
-
-    <Card variant="outlined"><CardContent sx={{ p: 0 }}>
-      {loading ? <Box p={4}><Typography color="text.secondary">Cargando servicios…</Typography></Box> : filtered.length === 0 ? <Box p={4} textAlign="center"><Typography fontWeight={700}>No hay servicios para mostrar</Typography><Typography color="text.secondary" mt={1}>Creá el primer servicio y asociá sus productos estándar.</Typography></Box> : filtered.map((service, index) => <Box key={service.id}>{index > 0 && <Divider />}<Box p={{ xs: 2, sm: 2.5 }} onClick={() => setSelectedService(service)} sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}><Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between"><Box><Typography fontWeight={800}>{service.name}</Typography><Typography variant="body2" color="text.secondary">{service.remarketing_months == null ? 'Sin remarketing definido' : `Remarketing: ${service.remarketing_months} meses`}</Typography></Box><Stack direction="row" spacing={1} alignItems="center"><Chip size="small" label={`$${Number(service.price_usd).toFixed(2)}`} /><Chip size="small" variant="outlined" label={service.active ? 'Activo' : 'Archivado'} /></Stack></Stack></Box></Box>)}
-    </CardContent></Card>
-
-    <ServiceFormDialog open={formOpen} onClose={() => { setFormOpen(false); setEditingService(null) }} onSaved={upsertService} organizationId={organization.id} userId={userId} service={editingService} products={products} />
-    <ServiceDetailDialog service={selectedService} open={Boolean(selectedService)} onClose={() => setSelectedService(null)} onEdit={(service) => { setSelectedService(null); setEditingService(service); setFormOpen(true) }} onToggleActive={toggleActive} organizationId={organization.id} products={products} />
-  </Stack>
+  const [services, setServices] = useState([]), [products, setProducts] = useState([]), [search, setSearch] = useState(''), [statusFilter, setStatusFilter] = useState('active'), [loading, setLoading] = useState(true), [error, setError] = useState(''), [formOpen, setFormOpen] = useState(false), [editingService, setEditingService] = useState(null), [selectedService, setSelectedService] = useState(null)
+  useEffect(() => { const load = async () => { setLoading(true); const [{ data: serviceRows, error: serviceError }, { data: productRows, error: productError }] = await Promise.all([supabase.from('services').select('*').eq('organization_id', organization.id).order('name'), supabase.from('products').select('*').eq('organization_id', organization.id).order('name')]); if (serviceError || productError) setError('No se pudo cargar el catálogo de servicios.'); else { setServices(serviceRows ?? []); setProducts(productRows ?? []) } setLoading(false) }; load() }, [organization.id])
+  const filtered = useMemo(() => { const term = search.trim().toLowerCase(); return services.filter((service) => (statusFilter === 'all' || (statusFilter === 'active' ? service.active : !service.active)) && (!term || service.name.toLowerCase().includes(term))) }, [services, search, statusFilter])
+  const upsertService = (saved) => setServices((current) => { const exists = current.some((s) => s.id === saved.id); const next = exists ? current.map((s) => s.id === saved.id ? saved : s) : [...current, saved]; return next.sort((a, b) => a.name.localeCompare(b.name)) })
+  const toggleActive = async (service) => { if (role !== 'admin') return; const { data, error: updateError } = await supabase.from('services').update({ active: !service.active }).eq('id', service.id).eq('organization_id', organization.id).select('*').single(); if (updateError) setError('No se pudo actualizar el servicio.'); else { upsertService(data); setSelectedService(null) } }
+  return <Stack spacing={3}><Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}><Box flex={1}><Typography variant="h4" fontWeight={800}>Servicios</Typography><Typography color="text.secondary">Definiciones maestras para procedimientos, precios, seguimiento CRM y consumo estándar de productos.</Typography></Box>{role === 'admin' && <Button variant="contained" size="large" onClick={() => { setEditingService(null); setFormOpen(true) }}>+ Nuevo servicio</Button>}</Stack>{error && <Alert severity="error">{error}</Alert>}<Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}><TextField placeholder="Buscar servicio" value={search} onChange={(e) => setSearch(e.target.value)} fullWidth /><FormControl sx={{ minWidth: { sm: 180 } }}><InputLabel>Estado</InputLabel><Select value={statusFilter} label="Estado" onChange={(e) => setStatusFilter(e.target.value)}><MenuItem value="active">Activos</MenuItem><MenuItem value="archived">Archivados</MenuItem><MenuItem value="all">Todos</MenuItem></Select></FormControl></Stack><Card variant="outlined"><CardContent sx={{ p: 0 }}>{loading ? <Box p={4}><Typography color="text.secondary">Cargando servicios…</Typography></Box> : filtered.length === 0 ? <Box p={4} textAlign="center"><Typography fontWeight={700}>No hay servicios para mostrar</Typography><Typography color="text.secondary" mt={1}>Creá el primer servicio y asociá sus productos estándar.</Typography></Box> : filtered.map((service, index) => <Box key={service.id}>{index > 0 && <Divider />}<Box p={{ xs: 2, sm: 2.5 }} onClick={() => setSelectedService(service)} sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}><Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between"><Box><Typography fontWeight={800}>{service.name}</Typography><Typography variant="body2" color="text.secondary">{followupLabel(service)}</Typography></Box><Stack direction="row" spacing={1} alignItems="center"><Chip size="small" label={`$${Number(service.price_usd).toFixed(2)}`} /><Chip size="small" variant="outlined" label={service.active ? 'Activo' : 'Archivado'} /></Stack></Stack></Box></Box>)}</CardContent></Card><ServiceFormDialog open={formOpen} onClose={() => { setFormOpen(false); setEditingService(null) }} onSaved={upsertService} organizationId={organization.id} userId={userId} service={editingService} products={products} /><ServiceDetailDialog service={selectedService} open={Boolean(selectedService)} onClose={() => setSelectedService(null)} onEdit={(service) => { setSelectedService(null); setEditingService(service); setFormOpen(true) }} onToggleActive={toggleActive} organizationId={organization.id} products={products} /></Stack>
 }
