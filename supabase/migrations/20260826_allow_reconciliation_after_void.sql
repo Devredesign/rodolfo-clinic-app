@@ -1,0 +1,9 @@
+-- A voided reconciliation must not block creating a new reconciliation for the same period.
+-- The database already has a partial unique index that only protects non-voided periods.
+-- Applied in Supabase by updating create_weekly_reconciliation() so its duplicate-period guard uses:
+--   status <> 'voided'
+-- instead of blocking on any historical reconciliation row.
+--
+-- This migration is intentionally documentary because the live function body was updated in Supabase
+-- together with native-currency reconciliation item snapshots. Future schema snapshots should preserve
+-- this rule when recreating create_weekly_reconciliation().
