@@ -2,6 +2,8 @@
 
 Este archivo registra la implementación real, las decisiones técnicas y el motivo de cada paso. Su objetivo es permitir que otro desarrollador pueda continuar el proyecto sin depender del historial de conversaciones.
 
+> Para el estado vigente y una entrada rápida al proyecto, leer primero `START_HERE.md`.
+
 ## Arquitectura acordada
 
 - Frontend: React + Vite + MUI.
@@ -26,24 +28,7 @@ Todo cambio de estructura de base de datos debe:
 
 Proyecto: `rodolfo-clinic-app`.
 
-Estado inicial verificado: proyecto nuevo, sin tablas de aplicación en `public`.
-
-### Migración 001 — `initial_app_schema`
-
-Se creó el esquema V1 con 26 tablas.
-
-Áreas principales:
-- organizaciones y usuarios,
-- clientes,
-- servicios,
-- procedimientos,
-- productos e inventario,
-- compras,
-- pagos,
-- gastos y cuentas por pagar,
-- CRM/tareas,
-- conciliaciones,
-- auditoría.
+Se creó el esquema V1 con áreas de organizaciones/usuarios, clientes, servicios, procedimientos, productos/inventario, compras, pagos, gastos/cuentas por pagar, CRM/tareas, conciliaciones y auditoría.
 
 ### Decisiones económicas preservadas como snapshots
 
@@ -59,168 +44,240 @@ USD y CRC se mantienen como registros separados; el tipo de cambio sirve para co
 
 ### Inventario
 
-Se separó el costo económico estándar del consumo físico.
-
-Un producto multiuso puede tener un frasco/contenedor con estado:
-- closed,
-- open,
-- depleted,
-- discarded.
-
-No se exige medir el remanente físico exacto. La app puede priorizar frascos abiertos y documentar descarte/desperdicio, mientras la rentabilidad usa la cantidad estándar definida para el servicio.
+Se separó el costo económico estándar del consumo físico. Un producto multiuso puede tener contenedores `closed`, `open`, `depleted`, `discarded`. No se exige medir remanente exacto.
 
 ---
 
 ## 2026-08-22 — RLS y permisos
 
-### Migración 002 — `tenant_rls_and_auth_profiles`
-
-Se habilitó Row Level Security en las 26 tablas públicas y se implementó aislamiento por `organization_id`.
+Se habilitó Row Level Security y aislamiento por `organization_id`.
 
 Roles V1:
 - `admin`: Rodolfo.
-- `assistant`: rol disponible para un perfil adicional que se creará posteriormente; no se asume todavía el nombre de la persona.
+- `assistant`: operación limitada, sin finanzas sensibles/configuración maestra.
 
 Principios:
-- un usuario autenticado solo accede a datos de organizaciones de las que es miembro activo,
-- clientes/procedimientos/inventario/tareas son operativos para miembros,
-- definiciones maestras y precios de productos/servicios son editables solo por admin,
-- finanzas, cuentas por pagar, conciliaciones y auditoría son admin-only,
-- un assistant puede registrar un pago; el admin controla el historial financiero completo,
-- las eliminaciones operativas sensibles se reservan al admin.
+- solo miembros activos acceden a su organización,
+- clientes/procedimientos/inventario/tareas son operativos,
+- definiciones maestras/precios son admin,
+- finanzas/conciliaciones/auditoría son admin,
+- assistant puede registrar operaciones permitidas pero no consultar administración financiera completa.
 
-Se agregó trigger de Auth para crear automáticamente `profiles` cuando se crea un usuario de Supabase Auth.
-
-### Migración 003 — `lock_down_auth_profile_trigger`
-
-El Security Advisor detectó que `handle_new_auth_user()` era `SECURITY DEFINER` y podía ser invocado como RPC por roles cliente.
-
-Se revocó `EXECUTE` a `public`, `anon` y `authenticated`. El trigger interno sigue funcionando, pero no puede invocarse desde la API.
-
-Resultado después de la corrección: **0 Security Advisor lints**.
-
-### Decisión de usuarios iniciales
-
-En el arranque se configurará únicamente el usuario de Rodolfo como `admin`.
-
-No se creará de momento ningún usuario de asistente. La aplicación deberá ofrecer al administrador una opción para crear/invitar posteriormente un nuevo perfil y asignarle el rol `assistant`. De esta manera no se codifican nombres de personas en la arquitectura ni se depende de quién ocupe el puesto de asistencia en el futuro.
+Se agregó trigger Auth para crear `profiles`; posteriormente se bloqueó ejecución RPC directa del trigger `SECURITY DEFINER`. Security Advisor quedó sin lints en esa revisión.
 
 ---
 
-## 2026-08-23 — Configuración inicial de Rodolfo y pruebas RLS
+## 2026-08-23 — Configuración inicial y pruebas RLS
 
-Se creó el usuario Auth de Rodolfo con el correo definido para la aplicación. El trigger de Auth creó automáticamente su `profile`, luego se normalizó el nombre visible a `Dr. Rodolfo Cabezas` y se asoció a la organización `rodolfo-cabezas` con rol `admin` y estado activo.
+Se configuró al Dr. Rodolfo Cabezas como admin de su organización, con módulos, categorías, métodos de pago y configuración económica inicial.
 
-La organización quedó sembrada con:
-- 5 módulos: CRM, inventario, pagos, finanzas y analytics,
-- 8 categorías iniciales de gasto,
-- 5 métodos de pago,
-- configuración económica inicial 70% Rodolfo / 30% clínica,
-- IVA/control fiscal 4%,
-- tipo de cambio inicial CRC/USD 515.
-
-El seed reproducible quedó guardado en `supabase/seeds/001_rodolfo_initial_configuration.sql`. Los IDs de Auth no se hardcodean en seeds.
-
-### Validación RLS realizada
-
-Se simuló una sesión `authenticated` con el UID real de Rodolfo y se verificó que puede ver únicamente su tenant:
-- 1 organización visible,
-- 5 módulos,
-- 8 categorías de gasto,
-- 5 métodos de pago.
-
-También se verificó capacidad de escritura de admin sobre datos maestros mediante una inserción temporal de producto; la operación fue aceptada bajo RLS y no dejó datos persistentes.
-
-Se simuló además un usuario autenticado sin membresía de organización. Resultado:
-- 0 organizaciones visibles,
-- 0 clientes visibles,
-- 0 productos visibles,
-- 0 categorías financieras visibles.
-
-Un intento de crear un cliente con ese usuario no miembro fue rechazado por PostgreSQL con `new row violates row-level security policy`, confirmando que el aislamiento no depende del frontend.
-
-### Estado
-
-RLS de tenant y permisos de `admin` validados correctamente para el estado actual del proyecto.
-
-La validación específica del rol `assistant` se hará cuando exista un segundo usuario de prueba o cuando se implemente el flujo de creación/invitación de perfiles desde la app.
+Se validó RLS simulando admin y usuario sin membresía. El usuario sin organización no pudo leer ni insertar datos tenant, confirmando aislamiento en base y no solo en frontend.
 
 ---
 
-## 2026-08-23 — Primer vertical slice del frontend
+## 2026-08-23 — Primer vertical slice frontend
 
-Se creó la rama `feat/frontend-auth-clients` para iniciar la aplicación real sin mezclar el trabajo en progreso con `main`.
+Se agregó `/frontend` con React + Vite + MUI + Supabase JS:
+- login,
+- recuperación de sesión,
+- organización/rol,
+- clientes,
+- búsqueda,
+- alta responsive,
+- logout.
 
-Se agregó `/frontend` con React + Vite + MUI + Supabase JS.
-
-### Alcance implementado
-
-- login por email/contraseña con Supabase Auth,
-- recuperación de sesión existente,
-- consulta de `organization_members` para obtener organización y rol,
-- listado real de clientes protegido por RLS,
-- buscador por nombre, identificación, teléfono y correo,
-- formulario responsive de nuevo cliente,
-- inserción de cliente con `organization_id` y `created_by`,
-- actualización inmediata del listado luego de crear,
-- logout,
-- interfaz responsive pensada para celular y escritorio.
-
-### Configuración frontend
-
-Las variables públicas de conexión no se hardcodean. Se usa `.env.local`, ignorado por Git, con:
-- `VITE_SB_URL`
-- `VITE_SB_PUBLIC`
-
-`.env.example` contiene únicamente placeholders.
-
-### Nota de validación
-
-El código quedó listo para prueba local. El build no pudo ejecutarse desde el entorno de ChatGPT porque dicho entorno no tiene resolución de red hacia npm/GitHub. La siguiente validación debe hacerse en una máquina local o CI con `npm install` y `npm run build`.
-
-## Próximo paso
-
-1. Ejecutar el frontend localmente con las variables públicas de Supabase.
-2. Probar login real de Rodolfo.
-3. Crear el primer cliente desde la interfaz y confirmar que aparece en la búsqueda.
-4. Corregir cualquier detalle detectado.
-5. Mergear la rama a `main` y desplegar preview en Vercel.
+Las variables públicas de conexión se mantienen fuera de Git mediante entorno.
 
 ---
 
-## 2026-08-26 — CRM v2: categorías, filtros y acciones contextuales
+## 2026-08-24 a 2026-08-26 — Construcción de módulos interdependientes
 
-Se formalizó el CRM como bandeja operativa central de la app, no como una lista libre de recordatorios.
+Se evolucionó la app desde CRUDs independientes hacia flujos conectados.
 
-### Categorías de tareas
+### Productos, compras e inventario
 
-Se creó `task_categories` por organización y se agregó `tasks.category_id`, manteniendo temporalmente `tasks.category` por compatibilidad con funciones existentes. Un trigger sincroniza ambos campos para que las automatizaciones antiguas continúen funcionando mientras el frontend usa IDs estables.
+- catálogo de productos,
+- tipos single-use/multi-use,
+- contenedores físicos para multiuso,
+- compras que alimentan inventario,
+- costo unitario de compra precargado desde costo actual y editable,
+- cambiar costo en compra actualiza costo vigente e historial,
+- compras editables,
+- compra pendiente genera tarea CRM,
+- registrar pago desde Finanzas actualiza compra y completa tarea,
+- consumo de inventario desde procedimientos,
+- soporte para frasco abierto/cerrado y agotamiento.
+
+### Servicios y procedimientos
+
+- catálogo de servicios,
+- productos/cantidades estándar por servicio,
+- procedimiento asociado a paciente,
+- productos adicionales,
+- estados pagado/pendiente,
+- métodos de pago y comisiones,
+- consumo de inventario,
+- seguimiento opcional mediante checkbox,
+- plazo de seguimiento y remarketing derivados de configuración.
+
+### Clientes
+
+- historial de procedimientos/pagos,
+- nivel/ranking alimentado por actividad,
+- representación visual del nivel con badge/color.
+
+---
+
+## 2026-08-26 — CRM v2
+
+Se formalizó el CRM como bandeja operativa central.
 
 Categorías base:
-- Seguimiento (`follow_up`),
-- Remarketing (`remarketing`),
-- Cobros (`collections`),
-- Compras (`purchases`),
-- Inventario (`inventory`),
-- Finanzas (`finance`),
-- Conciliación (`reconciliation`),
-- Administrativa (`administrative`),
-- General (`general`).
+- Seguimiento,
+- Remarketing,
+- Cobros,
+- Compras,
+- Inventario,
+- Finanzas,
+- Conciliación,
+- Administrativa,
+- General.
 
-Las categorías se crean automáticamente para organizaciones nuevas y se sembraron para las existentes.
+`category_id` define clasificación; `reference_type/reference_id` define origen.
 
-### UX CRM
+UX/acciones:
+- filtros por categoría/fecha,
+- vencidas/hoy diferenciadas,
+- WhatsApp para tareas vinculadas a cliente,
+- seguimiento abre cliente/procedimiento,
+- compra pendiente ofrece Registrar pago + Ver compra,
+- inventario ofrece acciones contextuales,
+- responsables múltiples mediante `task_assignees`.
 
-- El formulario manual usa un selector de categoría; ya no acepta texto libre.
-- Se agregaron filtros por categoría y por fecha: vencidas, hoy, próximos 7 días y sin fecha.
-- Las tareas vencidas/hoy se distinguen visualmente.
-- Tareas asociadas a clientes pueden abrir WhatsApp usando el teléfono del cliente.
-- Las tareas de seguimiento pueden abrir tanto la ficha del cliente como el procedimiento origen.
-- Las tareas de compras pendientes mantienen `Registrar pago` y `Ver compra`.
-- Las tareas de stock bajo ofrecen acceso contextual a Inventario/compra y al producto origen.
+Decisión crítica: tareas automáticas que representan una obligación económica no deben completarse manualmente. Se completan cuando se registra el pago real que resuelve la obligación.
 
-### Decisiones
+---
 
-- `category_id` define clasificación; `reference_type/reference_id` define origen. No se mezclan ambos conceptos.
-- Las acciones se derivan del origen de la tarea, no del texto del título.
-- Los responsables múltiples continúan modelados mediante `task_assignees`; la gestión de usuarios se implementará en un bloque posterior.
+## 2026-08-26 — Conciliación semanal
+
+Se consolidó conciliación como cierre por intervalo semanal explícito.
+
+Reglas:
+- CRC y USD se concilian por separado,
+- prevención de intervalos ya conciliados con mensaje comprensible,
+- estados visuales diferenciados,
+- posibilidad de anular conciliación,
+- obligaciones resultantes pueden generar tareas CRM,
+- tareas de pago se completan desde el movimiento financiero real,
+- Dashboard admin recuerda próxima conciliación al acercarse una semana desde el último período cerrado.
+
+---
+
+## 2026-08-26/27 — Dashboard y navegación
+
+Se diseñó el Dashboard como vestíbulo operativo, evitando mostrar números financieros sensibles/agresivos como primera experiencia.
+
+Incluye:
+- urgentes/hoy,
+- seguimientos,
+- cobros,
+- inventario bajo mínimo,
+- recordatorio de conciliación para admin,
+- accesos rápidos.
+
+Se agregaron iconos de navegación y accesos contextuales entre módulos relacionados.
+
+El 27-08 se compactaron las tarjetas: 4 métricas en una fila en desktop y 2×2 en móvil cuando el ancho lo permite, reduciendo padding/altura para lectura de una sola mirada.
+
+---
+
+## 2026-08-27 — Resumen financiero
+
+`Resumen financiero` se incorporó al grupo Finanzas y como acceso desde Dashboard para admin.
+
+Filtros separados:
+- mes,
+- año.
+
+KPIs renombrados para claridad operativa:
+- Procedimientos realizados,
+- Pagos recibidos,
+- Gastos pagados,
+- Margen de Rodolfo.
+
+Visualizaciones:
+- líneas históricas: Entradas vs Gastos vs Margen,
+- pastel: rendimiento estimado agrupado por servicio/procedimiento.
+
+Rendimiento estimado:
+`parte Rodolfo - IVA - comisión aplicable - costo estándar de productos`.
+
+Se documenta como estimación operativa, no utilidad contable auditada.
+
+---
+
+## 2026-08-27 — Usuarios, invitaciones y Auth
+
+Se implementó administración de usuarios para admin, reglas de responsables automáticos y Edge Functions de invitación/eliminación.
+
+Problemas encontrados y resolución:
+1. CORS en Edge Function de invitación: se ajustó función para frontend local/producción.
+2. Redirect de invitación mal configurado: Supabase Site URL/Redirect URLs deben usar URL absoluta con `https://`.
+3. Funciones protegidas devolvían `Missing authorization header`: frontend actualizado para enviar explícitamente `Authorization: Bearer <access_token>`.
+4. Supabase devolvió `email rate limit exceeded` después de múltiples pruebas. No era bug de la app.
+
+Para continuar QA se creó temporalmente un usuario assistant desde Supabase Auth y se vinculó a la organización. Debe eliminarse al terminar QA.
+
+Pendiente: pulir onboarding para que una invitación nueva obligue a establecer contraseña antes de mostrar Dashboard.
+
+---
+
+## 2026-08-27 — Primer deploy de producción / inicio de QA real
+
+Frontend desplegado en Vercel:
+`https://rodolfo-clinic-app.vercel.app`
+
+Configuración:
+- GitHub repo: `Devredesign/rodolfo-clinic-app`,
+- producción desde `main`,
+- Root Directory: `frontend`,
+- Vite build,
+- variables públicas Supabase configuradas en Vercel.
+
+Supabase Authentication debe mantener la URL de Vercel como Site URL y localhost únicamente como redirect adicional de desarrollo cuando sea necesario.
+
+### Limpieza para QA
+
+Antes de entregar el flujo a Rodolfo se eliminaron datos operativos de prueba:
+- clientes,
+- procedimientos,
+- pagos/reembolsos/créditos de prueba,
+- gastos/pagos de gastos,
+- compras/items,
+- inventario/contenedores/movimientos,
+- conciliaciones/items/transferencias,
+- tareas/asignaciones operativas,
+- productos/servicios/proveedores de prueba.
+
+Se conservaron deliberadamente:
+- organización,
+- configuración estructural,
+- módulos,
+- métodos de pago,
+- categorías base,
+- reglas automáticas,
+- usuarios necesarios para QA.
+
+Objetivo: Rodolfo comienza el QA cargando información real desde cero sin reconstruir la configuración del sistema.
+
+---
+
+## Estado de entrega al 27-08-2026
+
+**Implementado y desplegado:** Auth, roles/RLS, Dashboard, clientes, CRM, productos, inventario, compras, servicios, procedimientos, pagos/finanzas, conciliación, resumen financiero, navegación contextual y administración básica de usuarios.
+
+**En QA:** flujos completos con datos reales, permisos assistant, conciliación CRC/USD, responsive y lectura de métricas.
+
+**Problemas conocidos:** onboarding de invitación/contraseña y límite de email de Supabase durante pruebas intensivas.
+
+**Próximo trabajo:** corregir observaciones de Rodolfo durante QA, cerrar onboarding definitivo y hacer una pasada final de seguridad/UX/documentación antes de considerar V1 estable.
