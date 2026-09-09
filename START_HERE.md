@@ -1,7 +1,7 @@
 # START HERE — Contexto maestro
 
 > **Fuente de verdad para retomar el proyecto en un chat nuevo.**
-> Actualizado: **27 de agosto de 2026**.
+> Actualizado: **7 de septiembre de 2026**.
 
 ## Qué estamos construyendo
 
@@ -20,11 +20,9 @@ Producción:
 - Root Directory en Vercel: `frontend`.
 - Las variables públicas de Supabase se configuran como variables de entorno en Vercel; nunca guardar secretos en Git.
 
-## Estado al 27-08-2026
+## Estado actual
 
-La app **ya está desplegada y entró en QA con datos reales**. Ya no estamos en etapa de maqueta.
-
-Antes del QA se eliminaron los datos operativos de prueba para que Rodolfo pueda comenzar desde cero. Se conservaron configuración estructural, organización, métodos de pago, categorías, módulos, reglas y usuarios necesarios.
+La app está desplegada y en QA con datos reales. Los datos operativos de prueba fueron eliminados para que Rodolfo pueda comenzar desde cero, conservando configuración estructural, organización, métodos de pago, categorías, módulos, reglas y usuarios necesarios.
 
 Usuarios QA actuales:
 - Dr. Rodolfo Cabezas — `admin`.
@@ -39,7 +37,7 @@ Ejemplos vigentes:
 - Crear producto → disponible en inventario, compras, servicios y procedimientos.
 - Registrar compra → alimenta inventario, histórico de costo y, si queda pendiente, genera tarea CRM.
 - Pagar una compra desde Finanzas → actualiza el estado de la compra y completa la tarea automática asociada.
-- Registrar procedimiento → historial del paciente + consumo de inventario + pago/pendiente + seguimiento opcional.
+- Registrar procedimiento → historial del paciente + productos realmente utilizados + consumo de inventario + pago/pendiente + seguimiento opcional.
 - Registrar pago → actualiza procedimiento/cobro y entra en la lógica de conciliación.
 - Conciliación cerrada → genera obligaciones/tareas cuando corresponde.
 - Las tareas automáticas vinculadas a pagos no deben poder marcarse manualmente como realizadas: se completan al registrar el pago real.
@@ -48,15 +46,9 @@ Ejemplos vigentes:
 
 El Dashboard es un **vestíbulo operativo**, no una pantalla financiera invasiva.
 
-Al entrar se priorizan:
-- tareas urgentes/hoy,
-- seguimientos,
-- cobros,
-- alertas de inventario,
-- recordatorio de conciliación para admin,
-- accesos rápidos.
+Al entrar se priorizan tareas urgentes/hoy, seguimientos, cobros, alertas de inventario, recordatorio de conciliación para admin y accesos rápidos.
 
-Las tarjetas del Dashboard fueron compactadas para permitir lectura de una sola mirada: cuatro en fila en desktop y 2×2 en móvil cuando el ancho lo permite.
+Las tarjetas del Dashboard están compactadas para permitir lectura de una sola mirada: cuatro en fila en desktop y 2×2 en móvil cuando el ancho lo permite.
 
 El administrador tiene acceso desde el Dashboard al **Resumen financiero**, pero los números financieros detallados viven en el grupo Finanzas.
 
@@ -78,38 +70,38 @@ La eliminación de un usuario de prueba puede quitar asignaciones de tareas sin 
 
 Existe Edge Function `invite-organization-user` y flujo de eliminación de usuarios. El frontend debe enviar explícitamente el `Authorization: Bearer <access_token>` al invocar funciones protegidas.
 
-Durante QA se alcanzó el límite de envío de emails de Supabase (`email rate limit exceeded`). Esto no era un error del frontend. Para continuar QA se creó temporalmente el assistant desde Supabase Auth.
+Durante QA se alcanzó el límite de envío de emails de Supabase (`email rate limit exceeded`). Para continuar QA se creó temporalmente el assistant desde Supabase Auth.
 
-**Pendiente de pulido:** al aceptar una invitación, el usuario debe quedar obligado a crear/establecer contraseña antes de entrar al Dashboard. Revisar este flujo después del QA operativo.
+**Pendiente de pulido:** al aceptar una invitación, el usuario debe quedar obligado a crear/establecer contraseña antes de entrar al Dashboard.
 
 ## Clientes y ranking
 
-El cliente tiene historial de procedimientos y pagos. El nivel del cliente se alimenta de la actividad/procedimientos y se representa visualmente con badge/color asociado (Bronce, Plata, Oro, etc.).
+El cliente tiene historial de procedimientos y pagos. El nivel del cliente se alimenta de la actividad/procedimientos y se representa visualmente con badge/color asociado.
 
 ## Servicios y procedimientos
 
 - **Servicio** = catálogo maestro (Botox, relleno, etc.).
-- **Procedimiento** = instancia real para un paciente.
-- Un servicio puede definir productos/cantidades estándar y plazos de seguimiento/remarketing.
-- El procedimiento puede agregar productos adicionales.
+- **Procedimiento** = instancia real de un servicio aplicada/programada para un paciente.
+- Los productos asociados al **servicio son sugerencias/predeterminados**, no una receta obligatoria.
+- Al seleccionar un servicio en un nuevo procedimiento, sus productos sugeridos se precargan.
+- En el procedimiento se pueden **quitar sugeridos, cambiar cantidades o agregar cualquier producto activo del catálogo**, aunque nunca haya estado asociado al servicio.
+- Un servicio puede no tener ningún producto sugerido; en ese caso se eligen directamente al registrar el procedimiento.
+- `procedure_products` es la fuente de verdad de qué productos se utilizaron en ese procedimiento concreto. Inventario, costo y margen usan esos snapshots, no la receta actual del servicio.
+- Cambiar posteriormente los productos sugeridos de un servicio no modifica procedimientos históricos.
 - El procedimiento tiene checkbox **Dar seguimiento**. Si no se marca, no se crea tarea automática de seguimiento.
-- Si se marca, el plazo se deriva de la configuración del servicio/procedimiento.
 - Remarketing usa su propio plazo configurable y no debe confundirse con seguimiento clínico.
+
+### Flujo de productos en procedimiento
+
+`Servicio → precarga productos sugeridos → Rodolfo ajusta selección según el paciente → procedure_products guarda selección real → consumo de inventario → costo/margen`
+
+Para multiuso, la selección del producto/cantidad ocurre al registrar el procedimiento y la confirmación física de frasco abierto/agotado ocurre posteriormente en **Registrar consumo**.
 
 ## CRM / tareas
 
 El CRM es la bandeja operativa central.
 
-Categorías base:
-- Seguimiento,
-- Remarketing,
-- Cobros,
-- Compras,
-- Inventario,
-- Finanzas,
-- Conciliación,
-- Administrativa,
-- General.
+Categorías base: Seguimiento, Remarketing, Cobros, Compras, Inventario, Finanzas, Conciliación, Administrativa y General.
 
 `category_id` clasifica la tarea; `reference_type/reference_id` identifica su origen.
 
@@ -125,13 +117,7 @@ Tipos:
 - un solo uso,
 - multiuso.
 
-Para multiuso no se mide remanente exacto. Se controlan contenedores/frascos:
-- `closed`,
-- `open`,
-- `depleted`,
-- `discarded`.
-
-Se prioriza el frasco abierto más antiguo. Es posible consumir un frasco cerrado cuando corresponde y registrar cuándo un frasco se agota.
+Para multiuso no se mide remanente exacto. Se controlan contenedores/frascos `closed`, `open`, `depleted`, `discarded` y se prioriza el frasco abierto más antiguo.
 
 Compras:
 - producto seleccionado → costo unitario se precarga con el costo actual,
@@ -154,24 +140,20 @@ Reglas base:
 
 ### Resumen financiero
 
-Está dentro del grupo Finanzas y también accesible desde Dashboard para admin.
+Filtros: Mes y Año.
 
-Filtros:
-- Mes (dropdown),
-- Año (dropdown).
-
-KPIs con lenguaje no contable:
-- **Procedimientos realizados**: valor de procedimientos del período, aunque estén pendientes de cobro.
-- **Pagos recibidos**: dinero efectivamente recibido de pacientes.
-- **Gastos pagados**: egresos efectivamente pagados.
-- **Margen de Rodolfo**: resultado proveniente de conciliaciones cerradas según reglas económicas.
+KPIs:
+- **Procedimientos realizados**,
+- **Pagos recibidos**,
+- **Gastos pagados**,
+- **Margen de Rodolfo**.
 
 Visualizaciones:
-- gráfico histórico de líneas enfrentando Entradas / Gastos / Margen,
-- gráfico de pastel de rendimiento estimado por servicio/procedimiento para el período seleccionado.
+- líneas históricas: Entradas vs Gastos vs Margen,
+- pastel: rendimiento estimado agrupado por servicio.
 
-Rendimiento estimado por procedimiento/servicio:
-`parte Rodolfo - IVA - comisión aplicable - costo estándar de productos`.
+Rendimiento estimado:
+`parte Rodolfo - IVA - comisión aplicable - costo de productos guardados en el procedimiento`.
 
 No presentar este cálculo como utilidad contable auditada; es rendimiento estimado basado en la información registrada.
 
@@ -179,8 +161,8 @@ No presentar este cálculo como utilidad contable auditada; es rendimiento estim
 
 - Las conciliaciones son por intervalo semanal definido, no por mes implícito.
 - CRC y USD se concilian por separado.
-- No se puede crear una conciliación duplicada para fechas ya conciliadas; la UI debe explicar que esas fechas ya están conciliadas.
-- Una conciliación puede anularse; el estado visual debe distinguir abierta/pendiente/cerrada/anulada.
+- No se puede crear una conciliación duplicada para fechas ya conciliadas.
+- Una conciliación puede anularse.
 - Para cerrar correctamente deben resolverse las obligaciones/pagos exigidos por el flujo.
 - Las tareas derivadas de una obligación de conciliación se completan cuando se registra el pago correspondiente.
 - Dashboard admin recuerda revisar la siguiente conciliación al aproximarse una semana desde el último período cerrado.
@@ -189,30 +171,28 @@ No presentar este cálculo como utilidad contable auditada; es rendimiento estim
 
 El histórico no debe reescribirse al cambiar precios/configuración:
 - procedimiento conserva snapshot del servicio/precio,
-- consumo conserva costo estándar,
+- `procedure_products` conserva producto, cantidad y costo del producto al momento del procedimiento,
 - pagos conservan moneda/tipo de cambio relevante,
 - compras alimentan histórico de costo del producto,
 - conciliaciones conservan el resultado económico del período.
 
 ## QA actual
 
-La base operativa fue limpiada para que Rodolfo cargue información real desde cero.
-
 QA prioritario:
 1. Login admin y assistant.
 2. Confirmar permisos reales (RLS), no solo menú oculto.
 3. Crear cliente.
 4. Crear productos/servicios reales.
-5. Registrar compra y comprobar inventario + tarea si queda pendiente.
-6. Registrar procedimiento y consumo de inventario.
-7. Probar pago inmediato y pago pendiente.
-8. Probar seguimiento/remarketing y WhatsApp.
-9. Probar gasto/cuenta pendiente y cierre automático de tarea al pagar.
-10. Ejecutar conciliación semanal CRC y USD.
-11. Verificar anulación y prevención de períodos duplicados.
+5. Probar un servicio sin productos sugeridos y elegir productos exclusivamente desde el procedimiento.
+6. Probar un servicio con productos sugeridos, quitar uno, cambiar cantidad y agregar uno no sugerido.
+7. Registrar consumo y confirmar que solo se descuenta lo guardado en `procedure_products`.
+8. Registrar compra y comprobar inventario + tarea si queda pendiente.
+9. Probar pago inmediato y pago pendiente.
+10. Probar seguimiento/remarketing y WhatsApp.
+11. Ejecutar conciliación semanal CRC y USD.
 12. Revisar Dashboard y Resumen financiero con datos reales.
 13. Probar responsive móvil/desktop.
-14. Al terminar QA, eliminar el usuario assistant temporal y volver a probar el onboarding/invitación definitiva.
+14. Al terminar QA, eliminar el usuario assistant temporal y volver a probar onboarding/invitación definitiva.
 
 ## Problemas conocidos / pendientes post-QA
 
