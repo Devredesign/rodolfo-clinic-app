@@ -8,6 +8,7 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import SendOutlinedIcon from '@mui/icons-material/SendOutlined'
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined'
+import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined'
 import { supabase } from './supabase.js'
 
 const money = (amount, currency = 'CRC') => new Intl.NumberFormat('es-CR', { style: 'currency', currency }).format(Number(amount || 0))
@@ -29,22 +30,24 @@ export default function FinanceInboxScreen({ organization, userId }) {
   const [editing, setEditing] = useState(null)
   const [sendingOpen, setSendingOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [processing, setProcessing] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
   const load = async () => {
-    setLoading(true); setError('')
+    setLoading(true)
     const [entryRes, messageRes, documentRes, catRes, procedureRes, clientRes, methodRes] = await Promise.all([
       supabase.from('finance_inbox_entries').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }),
       supabase.from('finance_inbox_messages').select('*').eq('organization_id', organization.id).order('received_at', { ascending: false }),
       supabase.from('finance_inbox_documents').select('*').eq('organization_id', organization.id).order('created_at', { ascending: false }),
       supabase.from('expense_categories').select('id,name,active').eq('organization_id', organization.id).order('name'),
-      supabase.from('procedures').select('id,client_id,service_name_snapshot,payment_status,performed_date,scheduled_date').eq('organization_id', organization.id).order('created_at', { ascending: false }),
+      supabase.from('procedures').select('id,client_id,service_name_snapshot,payment_status,performed_at,scheduled_at,status').eq('organization_id', organization.id).order('created_at', { ascending: false }),
       supabase.from('clients').select('id,full_name,active').eq('organization_id', organization.id).order('full_name'),
       supabase.from('payment_methods').select('id,label,fee_rate,active').eq('organization_id', organization.id).order('label')
     ])
     if (entryRes.error || messageRes.error || documentRes.error || catRes.error || procedureRes.error || clientRes.error || methodRes.error) {
+      console.error({ entryRes, messageRes, documentRes, catRes, procedureRes, clientRes, methodRes })
       setError('No se pudo cargar la bandeja financiera.')
     } else {
       setEntries(entryRes.data || [])
@@ -59,6 +62,31 @@ export default function FinanceInboxScreen({ organization, userId }) {
   }
 
   useEffect(() => { load() }, [organization.id])
+
+  const processInbox = async () => {
+    setProcessing(true); setError(''); setNotice('')
+    const { data, error: invokeError } = await supabase.functions.invoke('finance-email-poll', {
+      body: { organization_id: organization.id }
+    })
+    if (invokeError) {
+      console.error(invokeError)
+      setError('No se pudieron procesar los correos. Revisá la conexión de Gmail o la sesión de administrador.')
+      setProcessing(false)
+      return
+    }
+    if (data?.error) {
+      setError(data.error)
+      setProcessing(false)
+      return
+    }
+    const processed = Number(data?.processed || 0)
+    const skipped = Number(data?.skipped || 0)
+    const failed = Number(data?.failed || 0)
+    const found = Number(data?.found || 0)
+    setNotice(`Gmail revisado: ${found} correo${found === 1 ? '' : 's'} encontrado${found === 1 ? '' : 's'} · ${processed} nuevo${processed === 1 ? '' : 's'} procesado${processed === 1 ? '' : 's'} · ${skipped} ya procesado${skipped === 1 ? '' : 's'}${failed ? ` · ${failed} con error` : ''}.`)
+    await load()
+    setProcessing(false)
+  }
 
   const messageById = useMemo(() => Object.fromEntries(messages.map((m) => [m.id, m])), [messages])
   const docsByMessage = useMemo(() => documents.reduce((acc, d) => { (acc[d.message_id] ||= []).push(d); return acc }, {}), [documents])
@@ -228,13 +256,18 @@ export default function FinanceInboxScreen({ organization, userId }) {
         <Typography variant="h4" fontWeight={800}>Bandeja de correo</Typography>
         <Typography color="text.secondary">Correos financieros detectados antes de entrar a la contabilidad de la app.</Typography>
       </Box>
-      <Button variant="contained" startIcon={<SendOutlinedIcon />} disabled={!confirmed.length} onClick={() => setSendingOpen(true)}>
-        Enviar {confirmed.length || ''} confirmados a la app
-      </Button>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+        <Button variant="outlined" startIcon={processing ? <CircularProgress size={18} /> : <RefreshOutlinedIcon />} disabled={processing} onClick={processInbox}>
+          {processing ? 'Procesando correos…' : 'Procesar correos ahora'}
+        </Button>
+        <Button variant="contained" startIcon={<SendOutlinedIcon />} disabled={!confirmed.length} onClick={() => setSendingOpen(true)}>
+          Enviar {confirmed.length || ''} confirmados a la app
+        </Button>
+      </Stack>
     </Stack>
 
     <Alert icon={<EmailOutlinedIcon />} severity="info">
-      <strong>Correo de Finanzas:</strong> {inboxEmail}. Cuando conectemos Gmail, Rodolfo solo tendrá que reenviar aquí facturas, comprobantes y pagos.
+      <strong>Correo de Finanzas:</strong> {inboxEmail}. Reenviá aquí facturas, comprobantes y pagos; luego usá “Procesar correos ahora” para traerlos a esta bandeja.
     </Alert>
     {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
     {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
@@ -255,7 +288,7 @@ export default function FinanceInboxScreen({ organization, userId }) {
     <Card variant="outlined"><CardContent sx={{ p: 0 }}>
       {visible.length === 0 ? <Box p={5} textAlign="center">
         <Typography fontWeight={800}>No hay movimientos en esta vista</Typography>
-        <Typography color="text.secondary" mt={1}>Cuando lleguen correos procesados aparecerán aquí para revisión.</Typography>
+        <Typography color="text.secondary" mt={1}>Cuando procesés correos nuevos aparecerán aquí para revisión.</Typography>
       </Box> : visible.map((entry, index) => {
         const message = messageById[entry.message_id]
         const docs = docsByMessage[entry.message_id] || []
@@ -330,7 +363,7 @@ function ReviewDialog({ entry, open, onClose, onSave, categories, procedures, cl
   }, [open, entry])
   if (!form) return null
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
-  const pendingProcedures = procedures.filter((p) => ['pending', 'partial'].includes(p.payment_status) || p.id === form.procedure_id)
+  const pendingProcedures = procedures.filter((p) => p.status !== 'cancelled' && (['pending', 'partial'].includes(p.payment_status) || p.id === form.procedure_id))
   return <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
     <DialogTitle>Revisar movimiento detectado</DialogTitle>
     <DialogContent><Stack spacing={2.25} mt={1}>
