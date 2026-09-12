@@ -18,6 +18,17 @@ const statusLabel = {
 }
 const statusColor = { detected: 'info', needs_review: 'warning', confirmed: 'success', sent: 'default', ignored: 'default', error: 'error' }
 
+function isWithinDays(value, days) {
+  if (!value || !days) return true
+  const date = new Date(`${value}T12:00:00`)
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  if (days === 'today') return date >= start
+  const cutoff = new Date(start)
+  cutoff.setDate(cutoff.getDate() - Number(days) + 1)
+  return date >= cutoff
+}
+
 export default function FinanceInboxScreen({ organization, userId }) {
   const [entries, setEntries] = useState([])
   const [messages, setMessages] = useState([])
@@ -27,11 +38,16 @@ export default function FinanceInboxScreen({ organization, userId }) {
   const [clients, setClients] = useState([])
   const [methods, setMethods] = useState([])
   const [filter, setFilter] = useState('pending')
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [currencyFilter, setCurrencyFilter] = useState('all')
+  const [periodFilter, setPeriodFilter] = useState('all')
   const [editing, setEditing] = useState(null)
   const [sendingOpen, setSendingOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState(false)
   const [sending, setSending] = useState(false)
+  const [ignoringId, setIgnoringId] = useState(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -92,19 +108,46 @@ export default function FinanceInboxScreen({ organization, userId }) {
   const docsByMessage = useMemo(() => documents.reduce((acc, d) => { (acc[d.message_id] ||= []).push(d); return acc }, {}), [documents])
   const clientById = useMemo(() => Object.fromEntries(clients.map((c) => [c.id, c])), [clients])
 
-  const visible = useMemo(() => {
-    if (filter === 'all') return entries
-    if (filter === 'pending') return entries.filter((e) => ['detected', 'needs_review', 'error'].includes(e.status))
-    return entries.filter((e) => e.status === filter)
-  }, [entries, filter])
-
   const confirmed = entries.filter((e) => e.status === 'confirmed')
   const pending = entries.filter((e) => ['detected', 'needs_review', 'error'].includes(e.status))
+  const ignored = entries.filter((e) => e.status === 'ignored')
   const incomeCRC = entries.filter((e) => e.entry_type === 'income' && e.currency === 'CRC' && e.status !== 'ignored').reduce((s, e) => s + Number(e.amount || 0), 0)
   const expenseCRC = entries.filter((e) => e.entry_type === 'expense' && e.currency === 'CRC' && e.status !== 'ignored').reduce((s, e) => s + Number(e.amount || 0), 0)
   const incomeUSD = entries.filter((e) => e.entry_type === 'income' && e.currency === 'USD' && e.status !== 'ignored').reduce((s, e) => s + Number(e.amount || 0), 0)
   const expenseUSD = entries.filter((e) => e.entry_type === 'expense' && e.currency === 'USD' && e.status !== 'ignored').reduce((s, e) => s + Number(e.amount || 0), 0)
   const inboxEmail = organization.settings?.finance_inbox_email || 'Dirección pendiente de conectar'
+  const hasExtraFilters = Boolean(search.trim()) || typeFilter !== 'all' || currencyFilter !== 'all' || periodFilter !== 'all'
+
+  const visible = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return entries.filter((entry) => {
+      if (filter === 'pending' && !['detected', 'needs_review', 'error'].includes(entry.status)) return false
+      if (filter !== 'all' && filter !== 'pending' && entry.status !== filter) return false
+      if (typeFilter !== 'all' && entry.entry_type !== typeFilter) return false
+      if (currencyFilter !== 'all' && entry.currency !== currencyFilter) return false
+      if (periodFilter !== 'all' && !isWithinDays(entry.document_date, periodFilter)) return false
+      if (!term) return true
+      const message = messageById[entry.message_id]
+      const haystack = [
+        entry.description,
+        entry.counterparty_name,
+        entry.external_reference,
+        entry.currency,
+        entry.amount,
+        message?.subject,
+        message?.sender_email,
+        message?.body_excerpt
+      ].filter((value) => value != null).join(' ').toLowerCase()
+      return haystack.includes(term)
+    })
+  }, [entries, filter, search, typeFilter, currencyFilter, periodFilter, messageById])
+
+  const clearExtraFilters = () => {
+    setSearch('')
+    setTypeFilter('all')
+    setCurrencyFilter('all')
+    setPeriodFilter('all')
+  }
 
   const openDocument = async (entry) => {
     const docs = docsByMessage[entry.message_id] || []
@@ -148,9 +191,15 @@ export default function FinanceInboxScreen({ organization, userId }) {
   }
 
   const ignoreEntry = async (entry) => {
+    setIgnoringId(entry.id); setError(''); setNotice('')
     const { error: updateError } = await supabase.from('finance_inbox_entries').update({ status: 'ignored' }).eq('id', entry.id).eq('organization_id', organization.id)
-    if (updateError) return setError('No se pudo ignorar el movimiento.')
-    await load()
+    if (updateError) {
+      setIgnoringId(null)
+      return setError('No se pudo ignorar el movimiento.')
+    }
+    setEntries((current) => current.map((item) => item.id === entry.id ? { ...item, status: 'ignored' } : item))
+    setNotice('Movimiento ignorado. Podés encontrarlo después en la vista “Ignorados”.')
+    setIgnoringId(null)
   }
 
   const sendExpense = async (entry) => {
@@ -281,14 +330,65 @@ export default function FinanceInboxScreen({ organization, userId }) {
 
     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
       {[
-        ['pending', `Por revisar (${pending.length})`], ['confirmed', `Confirmados (${confirmed.length})`], ['sent', 'Enviados'], ['all', 'Todos']
+        ['pending', `Por revisar (${pending.length})`],
+        ['confirmed', `Confirmados (${confirmed.length})`],
+        ['sent', 'Enviados'],
+        ['ignored', `Ignorados (${ignored.length})`],
+        ['all', 'Todos']
       ].map(([value, label]) => <Button key={value} size="small" variant={filter === value ? 'contained' : 'outlined'} onClick={() => setFilter(value)}>{label}</Button>)}
     </Stack>
 
+    <Card variant="outlined">
+      <CardContent>
+        <Stack spacing={1.5}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Buscar"
+            placeholder="Proveedor, asunto, referencia, monto…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Tipo</InputLabel>
+              <Select value={typeFilter} label="Tipo" onChange={(e) => setTypeFilter(e.target.value)}>
+                <MenuItem value="all">Todos</MenuItem>
+                <MenuItem value="expense">Gastos</MenuItem>
+                <MenuItem value="income">Entradas</MenuItem>
+                <MenuItem value="unknown">Sin clasificar</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Moneda</InputLabel>
+              <Select value={currencyFilter} label="Moneda" onChange={(e) => setCurrencyFilter(e.target.value)}>
+                <MenuItem value="all">Todas</MenuItem>
+                <MenuItem value="CRC">CRC</MenuItem>
+                <MenuItem value="USD">USD</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Fecha</InputLabel>
+              <Select value={periodFilter} label="Fecha" onChange={(e) => setPeriodFilter(e.target.value)}>
+                <MenuItem value="all">Cualquier fecha</MenuItem>
+                <MenuItem value="today">Hoy</MenuItem>
+                <MenuItem value="7">Últimos 7 días</MenuItem>
+                <MenuItem value="30">Últimos 30 días</MenuItem>
+              </Select>
+            </FormControl>
+            {hasExtraFilters && <Button sx={{ whiteSpace: 'nowrap' }} onClick={clearExtraFilters}>Limpiar filtros</Button>}
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            Mostrando {visible.length} de {entries.length} movimientos.
+          </Typography>
+        </Stack>
+      </CardContent>
+    </Card>
+
     <Card variant="outlined"><CardContent sx={{ p: 0 }}>
       {visible.length === 0 ? <Box p={5} textAlign="center">
-        <Typography fontWeight={800}>No hay movimientos en esta vista</Typography>
-        <Typography color="text.secondary" mt={1}>Cuando procesés correos nuevos aparecerán aquí para revisión.</Typography>
+        <Typography fontWeight={800}>No hay movimientos con estos filtros</Typography>
+        <Typography color="text.secondary" mt={1}>{hasExtraFilters ? 'Probá limpiando la búsqueda o los filtros.' : 'Cuando procesés correos nuevos aparecerán aquí para revisión.'}</Typography>
       </Box> : visible.map((entry, index) => {
         const message = messageById[entry.message_id]
         const docs = docsByMessage[entry.message_id] || []
@@ -316,7 +416,7 @@ export default function FinanceInboxScreen({ organization, userId }) {
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap justifyContent={{ md: 'flex-end' }}>
                 {docs.length > 0 && <Button size="small" variant="outlined" startIcon={<DescriptionOutlinedIcon />} onClick={() => openDocument(entry)}>Ver archivo</Button>}
                 {entry.status !== 'sent' && entry.status !== 'ignored' && <Button size="small" variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => setEditing(entry)}>Revisar</Button>}
-                {['detected', 'needs_review', 'error'].includes(entry.status) && <Button size="small" color="inherit" onClick={() => ignoreEntry(entry)}>Ignorar</Button>}
+                {['detected', 'needs_review', 'error'].includes(entry.status) && <Button size="small" color="inherit" disabled={ignoringId === entry.id} onClick={() => ignoreEntry(entry)}>{ignoringId === entry.id ? 'Ignorando…' : 'Ignorar'}</Button>}
               </Stack>
             </Stack>
           </Stack>
