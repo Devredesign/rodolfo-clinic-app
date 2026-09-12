@@ -32,6 +32,12 @@ function env(name: string) {
   if (!value) throw new Error(`Missing required secret: ${name}`)
   return value
 }
+function secretEnv(name: string) {
+  let value = env(name).trim()
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1).trim()
+  if (!value) throw new Error(`Missing required secret: ${name}`)
+  return value
+}
 function json(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status, headers: CORS }) }
 function b64urlBytes(value = '') {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')
@@ -89,10 +95,19 @@ function safeFilename(value: string) {
 }
 
 async function gmailAccessToken() {
-  const params = new URLSearchParams({ client_id: env('GMAIL_CLIENT_ID'), client_secret: env('GMAIL_CLIENT_SECRET'), refresh_token: env('GMAIL_REFRESH_TOKEN'), grant_type: 'refresh_token' })
+  const clientId = secretEnv('GMAIL_CLIENT_ID')
+  const clientSecret = secretEnv('GMAIL_CLIENT_SECRET')
+  const refreshToken = secretEnv('GMAIL_REFRESH_TOKEN')
+  const params = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' })
   const response = await fetch('https://oauth2.googleapis.com/token', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: params })
-  const data = await response.json()
-  if (!response.ok || !data.access_token) throw new Error(`Gmail OAuth refresh failed: ${data.error_description || data.error || response.status}`)
+  const raw = await response.text()
+  let data: any = {}
+  try { data = raw ? JSON.parse(raw) : {} } catch { data = {} }
+  if (!response.ok || !data.access_token) {
+    const code = String(data.error || `HTTP ${response.status}`)
+    const description = String(data.error_description || response.statusText || 'Unknown OAuth error')
+    throw new Error(`Gmail OAuth refresh failed: ${code}${description && description !== code ? ` — ${description}` : ''}`)
+  }
   return String(data.access_token)
 }
 async function gmailJson(token: string, path: string) {
